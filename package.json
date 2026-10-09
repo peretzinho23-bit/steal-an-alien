@@ -1,24 +1,11 @@
 {
-  "name": "steal-an-alien-bot",
-  "version": "1.0.0",
-  "description": "Discord server builder + community bot for the Roblox game Steal an Alien",
-  "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "pack": "node scripts/pack.js",
-    "inspect": "node --env-file=.env src/cli.js inspect",
-    "setup": "node --env-file=.env src/cli.js setup",
-    "setup:dry": "node --env-file=.env src/cli.js setup --dry-run",
-    "cleanup-roles": "node --env-file=.env src/cli.js cleanup-roles",
-    "test": "node --test \"test/**/*.test.js\""
-  },
-  "engines": {
-    "node": ">=18.17"
-  },
-  "license": "UNLICENSED",
+  "name": "steal-an-alien",
   "private": true,
-  "dependencies": {
-    "discord.js": "^14.27.0"
+  "type": "module",
+  "description": "Steal an Alien community: Discord bot (bot/), dashboard website (web/), shared code (shared/)",
+  "scripts": {
+    "sync": "node scripts/sync-shared.js",
+    "sync:check": "node scripts/sync-shared.js --check",
+    "test": "npm run sync:check && npm --prefix bot test"
   }
 }

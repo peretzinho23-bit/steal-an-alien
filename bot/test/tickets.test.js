@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Collection, PermissionFlagsBits as P } from 'discord.js';
+import { ChannelType, Collection, PermissionFlagsBits as P } from 'discord.js';
 import { closeTicket, isTicketChannel, openTicket, ticketOwnerId } from '../src/tickets.js';
 
 const BOT_ID = 'bot-1';
@@ -16,6 +16,7 @@ function fakeGuild() {
       create: async (options) => {
         const channel = {
           id: `ticket-${created.length + 1}`,
+          type: ChannelType.GuildText,
           name: options.name,
           topic: options.topic,
           parent: { id: options.parent },
@@ -37,8 +38,8 @@ function fakeGuild() {
       ]),
     },
   };
-  channels.set('panel', { id: 'panel', name: '🎫｜create-ticket', parent: { id: 'cat-support' } });
-  const logs = { id: 'logs', name: '📋｜ticket-logs', sent: [], send: async (p) => { logs.sent.push(p); } };
+  channels.set('panel', { id: 'panel', type: ChannelType.GuildText, name: '🎫｜create-ticket', parent: { id: 'cat-support' } });
+  const logs = { id: 'logs', type: ChannelType.GuildText, name: '📋｜ticket-logs', sent: [], send: async (p) => { logs.sent.push(p); } };
   channels.set('logs', logs);
   return { guild, created, logs, channels };
 }

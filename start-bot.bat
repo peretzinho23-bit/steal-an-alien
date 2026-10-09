@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0bot"
 title Steal an Alien - Discord Bot
 
 where node >nul 2>nul
@@ -11,7 +11,7 @@ if errorlevel 1 (
 )
 
 if not exist ".env" (
-  echo Missing .env file. Copy .env.example to .env and put the bot token in it.
+  echo Missing bot\.env file. Copy bot\.env.example to bot\.env and put the bot token in it.
   pause
   exit /b 1
 )
@@ -27,7 +27,7 @@ if not exist "node_modules" (
 
 :run
 echo [%date% %time%] Starting the bot...
-node --env-file=.env src/index.js
+node index.js
 echo [%date% %time%] The bot stopped with exit code %errorlevel%. Restarting in 10 seconds. Close this window to stop it.
 timeout /t 10 /nobreak >nul
 goto run

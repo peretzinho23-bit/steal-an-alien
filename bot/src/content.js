@@ -104,15 +104,43 @@ export function suggestionsGuide() {
   };
 }
 
-/** `commands` is [{ name, description, category }]; the guide is generated so it matches the bot exactly. */
-export function botCommandsGuide(commands) {
+/**
+ * Embed fields for a command list, grouped by category. A field holds at most 1024 characters,
+ * so a long category continues in a second field instead of being cut off.
+ * `commands` is [{ name, description, category }].
+ */
+export function commandFields(commands) {
   const groups = new Map();
   for (const c of commands) {
     if (!groups.has(c.category)) groups.set(c.category, []);
-    groups.get(c.category).push(`\`/${c.name}\` ${c.description}`);
+    groups.get(c.category).push(`\`/${c.name}\` ${c.description}`.slice(0, 200));
   }
+  const fields = [];
+  for (const [category, lines] of groups) {
+    let chunk = [];
+    let length = 0;
+    let part = 1;
+    const flush = () => {
+      if (!chunk.length) return;
+      fields.push({ name: part === 1 ? category : `${category} (${part})`, value: chunk.join('\n') });
+      chunk = [];
+      length = 0;
+      part++;
+    };
+    for (const line of lines) {
+      if (length + line.length + 1 > 1024) flush();
+      chunk.push(line);
+      length += line.length + 1;
+    }
+    flush();
+  }
+  return fields;
+}
+
+/** The guide is generated from the real command list so it can never go stale. */
+export function botCommandsGuide(commands) {
   const embed = base().setTitle('🤖 Bot commands').setDescription('Use these in this channel to keep the others clean.');
-  for (const [category, lines] of groups) embed.addFields({ name: category, value: lines.join('\n').slice(0, 1024) });
+  embed.addFields(commandFields(commands).slice(0, 25));
   return { embeds: [embed] };
 }
 

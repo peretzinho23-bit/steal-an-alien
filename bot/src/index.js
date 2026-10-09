@@ -7,6 +7,10 @@ import { memberWelcome } from './content.js';
 import { syncCommandGuide } from './guide.js';
 import { LevelStore } from './levels/store.js';
 import { ensureRankRoles, LevelSystem } from './levels/system.js';
+import { registerLogs } from './logs.js';
+import { initRuntime, refreshSettings, runtime } from './runtime.js';
+import { startScheduler } from './scheduler.js';
+import { ensureMissingChannels } from './setup.js';
 import { handleTicketButton } from './tickets.js';
 import { findChannel, findRole } from './util.js';
 
@@ -19,15 +23,17 @@ if (!DISCORD_TOKEN) {
 const memberRoleName = ROLES.find((r) => r.key === MEMBER_ROLE_KEY).name;
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 
-// XP lives in one JSON file. On a host, point DATA_DIR at a persistent volume so it survives restarts.
-const dataDir = DATA_DIR ?? fileURLToPath(new URL('../data/', import.meta.url));
-const store = new LevelStore(`${dataDir.replace(/[\\/]$/, '')}/levels.json`);
+// XP and the local settings fallback live in files under DATA_DIR. On a host, point DATA_DIR at a persistent volume.
+const dataDir = (DATA_DIR ?? fileURLToPath(new URL('../data/', import.meta.url))).replace(/[\\/]$/, '');
+const store = new LevelStore(`${dataDir}/levels.json`);
 const levels = new LevelSystem(store);
+initRuntime(dataDir);
 
 async function prepareGuild(guild) {
   const steps = [
     ['commands', () => registerCommands(guild).then(() => 'registered')],
     ['rank roles', () => ensureRankRoles(guild).then((created) => (created.length ? `created ${created.join(', ')}` : 'ok'))],
+    ['channels', () => ensureMissingChannels(guild).then((created) => (created.length ? `created ${created.join(', ')}` : 'ok'))],
     ['command guide', () => syncCommandGuide(guild)],
   ];
   for (const [name, step] of steps) {
@@ -39,16 +45,32 @@ async function prepareGuild(guild) {
   }
 }
 
-function createClient({ withMembers }) {
-  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates];
-  if (withMembers) intents.push(GatewayIntentBits.GuildMembers); // privileged: enable it in the Developer Portal
-  const client = new Client({ intents, partials: [Partials.Channel] });
+/** Privileged intents must be switched on in the Developer Portal; without them those features are skipped, not fatal. */
+const ATTEMPTS = [
+  { members: true, content: true },
+  { members: true, content: false },
+  { members: false, content: false },
+];
+
+function createClient(features) {
+  const intents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildModeration,
+  ];
+  if (features.members) intents.push(GatewayIntentBits.GuildMembers);
+  if (features.content) intents.push(GatewayIntentBits.MessageContent);
+  const client = new Client({ intents, partials: [Partials.Channel, Partials.Message] });
   client.levels = levels;
 
   client.once(Events.ClientReady, async (c) => {
-    log(`Logged in as ${c.user.tag} in ${c.guilds.cache.size} server(s). Member events: ${withMembers ? 'ON' : 'OFF'}`);
+    runtime.features = features;
+    log(`Logged in as ${c.user.tag} in ${c.guilds.cache.size} server(s). Member events: ${features.members ? 'ON' : 'OFF'}, message content: ${features.content ? 'ON' : 'OFF'}`);
+    await refreshSettings();
     for (const guild of c.guilds.cache.values()) await prepareGuild(guild);
     levels.start(c);
+    startScheduler(c);
   });
 
   client.on(Events.GuildCreate, (guild) => prepareGuild(guild));
@@ -91,32 +113,39 @@ function createClient({ withMembers }) {
     }
   });
 
+  registerLogs(client);
   client.on(Events.Error, (e) => log('Client error:', e));
   return client;
 }
 
 async function main() {
-  let client = createClient({ withMembers: true });
-  try {
-    await client.login(DISCORD_TOKEN);
-  } catch (e) {
-    if (!/disallowed intents/i.test(e.message)) throw e;
-    log('Server Members Intent is OFF in the Developer Portal, so welcome messages are disabled.');
-    log('Enable it at https://discord.com/developers/applications -> Bot -> Server Members Intent, then restart.');
-    await client.destroy();
-    client = createClient({ withMembers: false });
-    await client.login(DISCORD_TOKEN);
+  for (const features of ATTEMPTS) {
+    const client = createClient(features);
+    try {
+      await client.login(DISCORD_TOKEN);
+      return;
+    } catch (e) {
+      if (!/disallowed intents/i.test(e.message)) throw e;
+      await client.destroy();
+      log(`Discord refused the privileged intents (members: ${features.members}, message content: ${features.content}). Trying with fewer.`);
+      log('Switch them on at https://discord.com/developers/applications -> Bot -> Privileged Gateway Intents (Server Members + Message Content).');
+    }
   }
+  throw new Error('Discord refused every intent combination');
 }
 
-// Save the XP on the way out (Ctrl+C, window closed, host restart).
+// Save everything on the way out (Ctrl+C, window closed, host restart).
+const flush = () => {
+  store.flush();
+  runtime.kv?.flush?.();
+};
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
-    store.flush();
+    flush();
     process.exit(0);
   });
 }
-process.on('exit', () => store.flush());
+process.on('exit', flush);
 process.on('unhandledRejection', (e) => log('Unhandled rejection:', e));
 main().catch((e) => {
   log('Fatal:', e.message);

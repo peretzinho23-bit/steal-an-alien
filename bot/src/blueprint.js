@@ -61,6 +61,7 @@ const ch = (key, emoji, name, extra = {}) => ({
 export const CATEGORIES = [
   {
     name: '📢 INFO',
+    public: true, // stays visible to everyone even while the verification gate hides the rest
     channels: [
       ch('welcome', '👋', 'welcome', { access: 'read', topic: `Welcome to the official ${GAME_NAME} community!` }),
       ch('rules', '📜', 'rules', { access: 'read', topic: 'Read these before you chat.' }),
@@ -103,6 +104,7 @@ export const CATEGORIES = [
     channels: [
       ch('create-ticket', '🎫', 'create-ticket', {
         access: 'read',
+        public: true,
         topic: 'Need help or want to report something privately? Press the button below.',
       }),
     ],
@@ -113,11 +115,21 @@ export const CATEGORIES = [
     channels: [
       ch('staff-chat', '💬', 'staff-chat', { access: 'staff', topic: 'Staff only.' }),
       ch('ticket-logs', '📋', 'ticket-logs', { access: 'staff', topic: 'Transcripts of closed tickets.' }),
+      ch('mod-log', '📜', 'mod-log', {
+        access: 'staff',
+        topic: 'Automatic log: moderation actions, AutoMod alerts, joins, leaves and deleted messages.',
+      }),
     ],
   },
 ];
 
 export const allChannels = () => CATEGORIES.flatMap((c) => c.channels);
+
+/** The part of a channel name after the emoji prefix, lower-cased, spaces as dashes: "👋｜welcome" -> "welcome". */
+export const channelKey = (name) => name.split(SEP).pop().trim().toLowerCase().replace(/\s+/g, '-');
+
+/** Blueprint channels as { spec, category } pairs, handy for "which ones are missing". */
+export const blueprintEntries = () => CATEGORIES.flatMap((category) => category.channels.map((spec) => ({ spec, category })));
 
 /** Channel names that exist in the original server screenshot. Used by the tests as a checklist. */
 export const ORIGINAL_CHANNEL_NAMES = [

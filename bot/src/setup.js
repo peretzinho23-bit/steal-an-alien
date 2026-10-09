@@ -6,42 +6,13 @@ import {
   GuildVerificationLevel,
   PermissionFlagsBits as P,
 } from 'discord.js';
-import { CATEGORIES, MEMBER_ROLE_KEY, OWNER_ROLE_NAME, RANKS, ROLES, STAFF } from './blueprint.js';
+import { CATEGORIES, MEMBER_ROLE_KEY, OWNER_ROLE_NAME, RANKS, ROLES, blueprintEntries, channelKey } from './blueprint.js';
 import { describeCommands } from './commands/index.js';
 import * as content from './content.js';
+import { buildOverwrites, EVERYONE_PERMISSIONS, isPublicChannel } from './overwrites.js';
 import { findChannel } from './util.js';
 
-/** What a regular member may do everywhere (no @everyone mass pings, no webhooks, no channel management). */
-export const EVERYONE_PERMISSIONS = [
-  'ViewChannel', 'SendMessages', 'SendMessagesInThreads', 'CreatePublicThreads', 'EmbedLinks', 'AttachFiles',
-  'AddReactions', 'UseExternalEmojis', 'UseExternalStickers', 'ReadMessageHistory', 'UseApplicationCommands',
-  'Connect', 'Speak', 'Stream', 'UseVAD', 'ChangeNickname', 'CreateInstantInvite',
-];
-
-const READ_ONLY_DENY = [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads];
-const WRITE_ALLOW = [P.ViewChannel, P.SendMessages, P.EmbedLinks, P.AttachFiles, P.ReadMessageHistory];
-const BOT_ALLOW = [...WRITE_ALLOW, P.ManageMessages, P.ManageChannels, P.AddReactions];
-
-/**
- * Permission overwrites for one channel. Pure: takes plain ids, returns plain objects,
- * so it can be unit-tested without Discord.
- *   roleIds: { admin: id, mod: id, ... } of the NEW roles; everyoneId; botId.
- */
-export function buildOverwrites(spec, { roleIds, everyoneId, botId }) {
-  const ids = (keys = []) => keys.map((k) => roleIds[k]).filter(Boolean);
-  const staff = ids(STAFF);
-  const out = [];
-
-  if (spec.access === 'staff') {
-    out.push({ id: everyoneId, deny: [P.ViewChannel] });
-    for (const id of new Set([...staff, ...ids(spec.viewers)])) out.push({ id, allow: WRITE_ALLOW });
-  } else if (spec.access === 'read') {
-    out.push({ id: everyoneId, deny: READ_ONLY_DENY });
-    for (const id of new Set([...staff, ...ids(spec.writers)])) out.push({ id, allow: WRITE_ALLOW });
-  }
-  if (botId) out.push({ id: botId, allow: BOT_ALLOW });
-  return out;
-}
+export { buildOverwrites, EVERYONE_PERMISSIONS };
 
 /** "Owner", "👑 Owner", "owner" ... any role whose name contains the word owner is the one to keep. */
 export const isOwnerRole = (role) => new RegExp(`\\b${OWNER_ROLE_NAME}\\b`, 'i').test(role.name);
@@ -263,6 +234,45 @@ export async function cleanupRoles(guild, { dryRun = false, log = console.log } 
     }
   }
   return { leftovers: leftovers.map((r) => r.name), problems };
+}
+
+/**
+ * Additive and safe: creates only the blueprint channels that do not exist yet (for example a channel added
+ * to the blueprint after the server was built). Never deletes or edits anything that exists.
+ * Returns the names of the channels it created.
+ */
+export async function ensureMissingChannels(guild, { gated = false } = {}) {
+  await guild.channels.fetch();
+  await guild.roles.fetch();
+  const me = await guild.members.fetchMe();
+  const roleIds = Object.fromEntries(
+    ROLES.map((r) => [r.key, guild.roles.cache.find((role) => role.name === r.name)?.id]).filter(([, id]) => id),
+  );
+  const created = [];
+  for (const { spec, category } of blueprintEntries()) {
+    const voice = spec.type === 'voice';
+    if (findChannel(guild, channelKey(spec.name), { voice })) continue;
+
+    let parent = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === category.name);
+    if (!parent) {
+      parent = await guild.channels.create({
+        name: category.name,
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: category.staffOnly ? buildOverwrites({ access: 'staff' }, { roleIds, everyoneId: guild.id, botId: me.id }) : [],
+        reason: 'Missing blueprint category',
+      });
+    }
+    await guild.channels.create({
+      name: spec.name,
+      type: voice ? ChannelType.GuildVoice : ChannelType.GuildText,
+      parent: parent.id,
+      topic: voice ? undefined : spec.topic,
+      permissionOverwrites: buildOverwrites(spec, { roleIds, everyoneId: guild.id, botId: me.id, gated: gated && !isPublicChannel(spec, category) }),
+      reason: 'Missing blueprint channel',
+    });
+    created.push(spec.name);
+  }
+  return created;
 }
 
 export { findChannel };

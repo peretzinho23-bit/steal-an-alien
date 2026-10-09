@@ -1,3 +1,4 @@
+import './env.js'; // fills process.env from bot/.env (no --env-file flag, works on any Node version)
 import { createInterface } from 'node:readline/promises';
 import { Client, GatewayIntentBits } from 'discord.js';
 import { describeGuild, printGuild } from './inspect.js';

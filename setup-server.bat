@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0bot"
 title Steal an Alien - Rebuild the server
 
 where node >nul 2>nul
@@ -11,7 +11,7 @@ if errorlevel 1 (
 )
 
 if not exist ".env" (
-  echo Missing .env file. Copy .env.example to .env and fill in the token and server id.
+  echo Missing bot\.env file. Copy bot\.env.example to bot\.env and fill in the token and server id.
   pause
   exit /b 1
 )

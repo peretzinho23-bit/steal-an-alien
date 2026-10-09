@@ -1,10 +1,14 @@
+import channels from './channels.js';
 import general, { makeHelp } from './general.js';
 import levels from './levels.js';
 import moderation from './moderation.js';
+import roles from './roles.js';
 import staff from './staff.js';
+import voice from './voice.js';
+import warns from './warns.js';
 
 /** Every command is { category, data: SlashCommandBuilder, run(interaction) }. */
-export const commands = [...general, ...levels, ...moderation, ...staff];
+export const commands = [...general, ...levels, ...moderation, ...warns, ...channels, ...roles, ...voice, ...staff];
 commands.push(makeHelp(() => commands));
 
 const byName = new Map(commands.map((c) => [c.data.name, c]));

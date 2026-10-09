@@ -1,5 +1,5 @@
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder, time } from 'discord.js';
-import { COLOR } from '../content.js';
+import { COLOR, commandFields } from '../content.js';
 
 const base = () => new EmbedBuilder().setColor(COLOR);
 
@@ -94,13 +94,8 @@ export function makeHelp(getCommands) {
     category: 'General',
     data: new SlashCommandBuilder().setName('help').setDescription('List everything the bot can do'),
     run(i) {
-      const groups = new Map();
-      for (const c of getCommands()) {
-        if (!groups.has(c.category)) groups.set(c.category, []);
-        groups.get(c.category).push(`\`/${c.data.name}\` ${c.data.description}`);
-      }
-      const embed = base().setTitle('🤖 Commands');
-      for (const [category, lines] of groups) embed.addFields({ name: category, value: lines.join('\n') });
+      const list = getCommands().map((c) => ({ name: c.data.name, description: c.data.description, category: c.category }));
+      const embed = base().setTitle('🤖 Commands').addFields(commandFields(list).slice(0, 25));
       return i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     },
   };

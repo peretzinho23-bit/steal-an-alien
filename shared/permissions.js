@@ -1,0 +1,32 @@
+/** Who may use the dashboard and the staff-only bot features. Pure functions over plain Discord API objects. */
+
+const ADMINISTRATOR = 0x8n;
+const MANAGE_MESSAGES = 0x2000n;
+
+export const LEVEL_RANK = { staff: 1, admin: 2 };
+
+/**
+ * @param guildRoles  [{ id, name, permissions }] from the Discord API (permissions is a decimal string)
+ * @param memberRoleIds the member's role ids
+ * @returns 'admin' | 'staff' | null
+ */
+export function computeLevel({ guildId, ownerId, userId, memberRoleIds, guildRoles }) {
+  if (userId && userId === ownerId) return 'admin';
+  const mine = guildRoles.filter((r) => r.id === guildId || memberRoleIds.includes(r.id));
+  let perms = 0n;
+  for (const role of mine) {
+    try {
+      perms |= BigInt(role.permissions ?? 0);
+    } catch {
+      /* ignore a malformed permission value */
+    }
+  }
+  if (perms & ADMINISTRATOR) return 'admin';
+  const names = mine.filter((r) => r.id !== guildId).map((r) => String(r.name));
+  if (names.some((n) => /\bowner\b/i.test(n) || /^admin$/i.test(n.replace(/^[^\p{L}\p{N}]+/u, '')))) return 'admin';
+  if (names.some((n) => /^moderator$/i.test(n.replace(/^[^\p{L}\p{N}]+/u, '')))) return 'staff';
+  if (perms & MANAGE_MESSAGES) return 'staff';
+  return null;
+}
+
+export const hasLevel = (level, required) => (LEVEL_RANK[level] ?? 0) >= (LEVEL_RANK[required] ?? Infinity);

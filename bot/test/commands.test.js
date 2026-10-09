@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { botCommandsGuide } from '../src/content.js';
+import { botCommandsGuide, commandFields } from '../src/content.js';
 import { commandData, commands, describeCommands } from '../src/commands/index.js';
 import { checkTarget } from '../src/commands/moderation.js';
 
-const CATEGORIES = new Set(['General', 'Fun', 'Ranks', 'Moderation', 'Staff', 'Tickets']);
+const CATEGORIES = new Set(['General', 'Fun', 'Ranks', 'Moderation', 'Rooms', 'Staff', 'Tickets']);
 
 test('every command is well formed for Discord', () => {
   assert.ok(commandData.length > 0 && commandData.length <= 100);
@@ -28,7 +28,7 @@ test('the commands the user asked for exist', () => {
 });
 
 test('staff and moderation commands are hidden from regular members by default', () => {
-  for (const c of commands.filter((x) => ['Moderation', 'Staff', 'Tickets'].includes(x.category))) {
+  for (const c of commands.filter((x) => ['Moderation', 'Rooms', 'Staff', 'Tickets'].includes(x.category))) {
     assert.ok(c.data.toJSON().default_member_permissions, `/${c.data.name} would be visible to everyone`);
   }
 });
@@ -71,4 +71,36 @@ test('checkTarget: blocks self, the bot, the owner, missing members and equal/hi
 test('checkTarget: the server owner may act on anyone but themselves', () => {
   assert.equal(checkTarget(ctx(member('owner', 1), member('boss', 9)), 'kick'), null);
   assert.match(checkTarget(ctx(member('owner', 1), member('owner', 1)), 'kick'), /yourself/);
+});
+
+test('options: required ones come first and Discord\'s count limits hold (also inside sub-commands)', () => {
+  const walk = (options, where) => {
+    assert.ok(options.length <= 25, `${where} has ${options.length} options`);
+    let optionalSeen = false;
+    for (const o of options) {
+      if (o.type === 1) {
+        walk(o.options ?? [], `${where} ${o.name}`);
+        continue;
+      }
+      if (!o.required) optionalSeen = true;
+      else assert.ok(!optionalSeen, `${where}: required option "${o.name}" comes after an optional one`);
+    }
+  };
+  for (const c of commands) walk(c.data.toJSON().options ?? [], `/${c.data.name}`);
+});
+
+test('commandFields: long categories continue in a second field instead of being cut', () => {
+  const list = Array.from({ length: 30 }, (_, n) => ({ name: `cmd${n}`, description: 'x'.repeat(60), category: 'Moderation' }));
+  const fields = commandFields(list);
+  assert.ok(fields.length >= 2);
+  for (const f of fields) assert.ok(f.value.length <= 1024 && f.value.length > 0);
+  assert.equal(fields[1].name, 'Moderation (2)');
+  const joined = fields.map((f) => f.value).join('\n');
+  for (const c of list) assert.ok(joined.includes(`/${c.name}`), `${c.name} was cut off`);
+});
+
+test('the real command list fits the help/guide embed (<=25 fields, each <=1024)', () => {
+  const fields = commandFields(describeCommands());
+  assert.ok(fields.length <= 25, `${fields.length} fields`);
+  for (const f of fields) assert.ok(f.value.length <= 1024, f.name);
 });

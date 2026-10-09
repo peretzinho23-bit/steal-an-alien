@@ -1,7 +1,7 @@
 import { MessageFlags, PermissionFlagsBits as P, SlashCommandBuilder } from 'discord.js';
 import { modLog } from '../modlog.js';
 
-const NO_REASON = 'No reason given';
+export const NO_REASON = 'No reason given';
 
 /**
  * Why this member must not be punished by the moderator, or null if it is fine.
@@ -18,13 +18,14 @@ export function checkTarget({ moderator, target, botId, ownerId }, action) {
   return null;
 }
 
-const guardTarget = (i, member, action) =>
+export const guardTarget = (i, member, action) =>
   checkTarget({ moderator: i.member, target: member, botId: i.client.user.id, ownerId: i.guild.ownerId }, action);
 
-const needs = (i, perm, label) =>
+/** Replies with an error and returns the reply promise when the member lacks the permission; null when allowed. */
+export const needs = (i, perm, label) =>
   i.memberPermissions.has(perm) ? null : i.reply({ content: `You need the ${label} permission.`, flags: MessageFlags.Ephemeral });
 
-const tryDm = (user, text) => user.send(text).catch(() => null);
+export const tryDm = (user, text) => user.send(text).catch(() => null);
 
 const userOption = (o) => o.setName('user').setDescription('Member').setRequired(true);
 const reasonOption = (o) => o.setName('reason').setDescription('Reason (shown in the log)').setMaxLength(400);
