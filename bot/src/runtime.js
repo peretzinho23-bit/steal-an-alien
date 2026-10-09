@@ -24,22 +24,22 @@ export function initRuntime(dataDir) {
 
 export const getSettings = () => runtime.settings;
 
-/** Calls `fn(settings)` whenever the settings actually change. Returns an unsubscribe function. */
+/** Calls `fn(next, previous)` whenever the settings actually change. Returns an unsubscribe function. */
 export function onSettings(fn) {
   runtime.listeners.add(fn);
   return () => runtime.listeners.delete(fn);
 }
 
 function apply(next) {
-  const changed = JSON.stringify(next) !== JSON.stringify(runtime.settings);
+  const previous = runtime.settings;
+  const changed = JSON.stringify(next) !== JSON.stringify(previous);
   runtime.settings = next;
   if (changed) {
     for (const fn of runtime.listeners) {
-      try {
-        fn(next);
-      } catch (e) {
-        log('settings listener failed:', e.message);
-      }
+      // listeners may be async (they talk to Discord); a failure in one must never break the others
+      Promise.resolve()
+        .then(() => fn(next, previous))
+        .catch((e) => log('settings listener failed:', e.message));
     }
   }
   return changed;

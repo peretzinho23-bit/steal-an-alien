@@ -3,7 +3,7 @@ import { GAME_NAME } from './blueprint.js';
 import { mention } from './util.js';
 
 export const COLOR = 0x57f287; // alien green
-export const IDS = { ticketOpen: 'ticket:open', ticketClose: 'ticket:close' };
+export const IDS = { ticketOpen: 'ticket:open', ticketClose: 'ticket:close', verify: 'verify:go' };
 
 const base = () => new EmbedBuilder().setColor(COLOR).setFooter({ text: `${GAME_NAME} • Official Community` });
 
@@ -25,6 +25,11 @@ export function welcomePanel(guild) {
           { name: '💡 Got an idea?', value: `${m('suggestions')}`, inline: true },
           { name: '🎫 Need help?', value: `${m('create-ticket')}`, inline: true },
         ),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(IDS.verify).setLabel('I accept the rules - Verify me').setEmoji('✅').setStyle(ButtonStyle.Success),
+      ),
     ],
   };
 }

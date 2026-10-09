@@ -1,52 +1,16 @@
 import { KEYS } from './shared/kv.js';
+import { createWarnStore, stepForCount } from './shared/warnStore.js';
 import { getSettings, runtime } from './runtime.js';
 
-const MAX_WARNS = 100;
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 
-export async function getWarns(guildId, userId) {
-  return (await runtime.kv.get(KEYS.warns(guildId, userId))) ?? [];
-}
-
-/** { [guildId]: { [userId]: count } }: lets the dashboard list everyone who has warnings. */
-async function setIndex(guildId, userId, count) {
-  const index = (await runtime.kv.get(KEYS.warnUsers)) ?? {};
-  index[guildId] ??= {};
-  if (count > 0) index[guildId][userId] = count;
-  else delete index[guildId][userId];
-  await runtime.kv.set(KEYS.warnUsers, index);
-}
-
-const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-
-export async function addWarn(guildId, userId, { by, reason }) {
-  const list = await getWarns(guildId, userId);
-  const warn = { id: newId(), at: Date.now(), by: by ?? null, reason: String(reason).slice(0, 400) };
-  list.push(warn);
-  const kept = list.slice(-MAX_WARNS);
-  await runtime.kv.set(KEYS.warns(guildId, userId), kept);
-  await setIndex(guildId, userId, kept.length);
-  return { warn, count: kept.length };
-}
-
-export async function removeWarn(guildId, userId, id) {
-  const list = await getWarns(guildId, userId);
-  const next = list.filter((w) => w.id !== id);
-  if (next.length === list.length) return null;
-  await runtime.kv.set(KEYS.warns(guildId, userId), next);
-  await setIndex(guildId, userId, next.length);
-  return next.length;
-}
-
-export async function clearWarns(guildId, userId) {
-  const had = (await getWarns(guildId, userId)).length;
-  await runtime.kv.del(KEYS.warns(guildId, userId));
-  await setIndex(guildId, userId, 0);
-  return had;
-}
-
-/** The punishment configured for exactly this number of warnings (each step fires once), or null. */
-export const stepForCount = (escalation, count) => escalation.find((s) => s.at === count) ?? null;
+// The warning storage is shared with the website, so both sides write exactly the same data.
+const store = () => createWarnStore(runtime.kv);
+export const getWarns = (guildId, userId) => store().get(guildId, userId);
+export const addWarn = (guildId, userId, entry) => store().add(guildId, userId, entry);
+export const removeWarn = (guildId, userId, id) => store().remove(guildId, userId, id);
+export const clearWarns = (guildId, userId) => store().clear(guildId, userId);
+export { stepForCount };
 
 /**
  * Applies the escalation step for `count` warnings. Returns a short human sentence about what happened
@@ -77,18 +41,27 @@ export async function applyEscalation(guild, user, count, settings = getSettings
 }
 
 // ---- temporary bans -----------------------------------------------------------------------------
+// Only the bot writes these, so the list lives in memory after one read and the scheduler never polls the store.
+
+let pending = null;
+async function loadTempBans() {
+  pending ??= (await runtime.kv.get(KEYS.tempbans)) ?? [];
+  return pending;
+}
+export const resetTempBanCache = () => {
+  pending = null;
+};
 
 export async function addTempBan({ guildId, userId, until, by, reason }) {
-  const list = (await runtime.kv.get(KEYS.tempbans)) ?? [];
-  const next = list.filter((b) => !(b.guildId === guildId && b.userId === userId));
-  next.push({ guildId, userId, until, by, reason });
-  await runtime.kv.set(KEYS.tempbans, next);
+  const list = await loadTempBans();
+  pending = list.filter((b) => !(b.guildId === guildId && b.userId === userId));
+  pending.push({ guildId, userId, until, by, reason });
+  await runtime.kv.set(KEYS.tempbans, pending);
 }
 
 /** Unbans everyone whose time is up. Returns how many were lifted. */
 export async function processTempBans(client, now = Date.now()) {
-  const list = (await runtime.kv.get(KEYS.tempbans)) ?? [];
-  if (!list.length) return 0;
+  const list = await loadTempBans();
   const due = list.filter((b) => b.until <= now);
   if (!due.length) return 0;
   let lifted = 0;
@@ -104,6 +77,7 @@ export async function processTempBans(client, now = Date.now()) {
       else lifted++;
     }
   }
+  pending = keep;
   await runtime.kv.set(KEYS.tempbans, keep);
   return lifted;
 }

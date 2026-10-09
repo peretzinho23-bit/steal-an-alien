@@ -24,8 +24,28 @@ export const everyoneSendWhenOpen = (channel) => (specFor(channel)?.access === '
 /** Staff channels stay hidden when "shown" again. */
 export const everyoneViewWhenShown = (channel) => (specFor(channel)?.access === 'staff' ? false : null);
 
+// The lockdown state is only ever written by this bot, so it is read from the store once and then kept in memory
+// (the scheduler checks it every 30 seconds without a single request to the store).
+let state;
+let loaded = false;
+export const resetLockdownCache = () => {
+  state = undefined;
+  loaded = false;
+};
+
 export async function getLockdown() {
-  return (await runtime.kv.get(KEYS.lockdown)) ?? null;
+  if (!loaded) {
+    state = (await runtime.kv.get(KEYS.lockdown)) ?? null;
+    loaded = true;
+  }
+  return state;
+}
+
+async function saveLockdown(next) {
+  state = next;
+  loaded = true;
+  if (next) await runtime.kv.set(KEYS.lockdown, next);
+  else await runtime.kv.del(KEYS.lockdown);
 }
 
 /** Blueprint chat channels that members can normally write in. */
@@ -59,7 +79,9 @@ export async function lockdownOn(guild, { minutes = 15, by = null, reason = 'Loc
   } catch (e) {
     log('lockdown: could not pause invites:', e.message);
   }
-  await runtime.kv.set(KEYS.lockdown, { guildId: guild.id, at: Date.now(), until, by, locked, invitesPaused });
+  // the store only takes plain data: keep an id and a name, never the Discord user object itself
+  const who = by ? { id: by.id, name: by.tag ?? by.username ?? String(by.id) } : null;
+  await saveLockdown({ guildId: guild.id, at: Date.now(), until, by: who, locked, invitesPaused });
   const notice = findChannel(guild, 'general');
   await notice
     ?.send(`🔒 **The server is in lockdown for ${minutes} minute(s).** Staff are handling it. Chat opens again soon.`)
@@ -69,7 +91,7 @@ export async function lockdownOn(guild, { minutes = 15, by = null, reason = 'Loc
 }
 
 export async function lockdownOff(guild, { by = null, reason = 'Lockdown ended' } = {}) {
-  const state = await getLockdown();
+  const wasLocked = await getLockdown();
   let opened = 0;
   for (const channel of chatChannels(guild)) {
     try {
@@ -84,17 +106,17 @@ export async function lockdownOff(guild, { by = null, reason = 'Lockdown ended' 
   } catch (e) {
     log('lockdown: could not resume invites:', e.message);
   }
-  await runtime.kv.del(KEYS.lockdown);
+  await saveLockdown(null);
   await findChannel(guild, 'general')?.send('🔓 **Lockdown is over.** Chat is open again.').catch(() => {});
   await modLog(guild, { action: 'Lockdown OFF', moderator: by, reason, extra: `${opened} channel(s) reopened` });
-  return { opened, wasLocked: Boolean(state) };
+  return { opened, wasLocked: Boolean(wasLocked) };
 }
 
 /** Called by the scheduler: ends a lockdown whose time is up. */
 export async function checkLockdownExpiry(client, now = Date.now()) {
-  const state = await getLockdown();
-  if (!state || state.until > now) return false;
-  const guild = client.guilds.cache.get(state.guildId);
+  const current = await getLockdown();
+  if (!current || current.until > now) return false;
+  const guild = client.guilds.cache.get(current.guildId);
   if (!guild) return false;
   await lockdownOff(guild, { reason: 'Lockdown time is up' });
   return true;

@@ -7,16 +7,18 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { ChannelType, Collection, Events, PermissionFlagsBits as P } from 'discord.js';
 import { roleProblem } from '../src/commands/roles.js';
 import { confirmAction } from '../src/commands/channels.js';
-import { checkLockdownExpiry, everyoneSendWhenOpen, everyoneViewWhenShown, getLockdown, lockdownOff, lockdownOn, specFor } from '../src/lockdown.js';
+import { checkLockdownExpiry, everyoneSendWhenOpen, everyoneViewWhenShown, getLockdown, lockdownOff, lockdownOn, resetLockdownCache, specFor } from '../src/lockdown.js';
 import { formatters, registerLogs } from '../src/logs.js';
 import { runtime } from '../src/runtime.js';
 import { FileKv } from '../src/shared/kv.js';
 import { normalizeSettings } from '../src/shared/settings.js';
 import { ensureMissingChannels } from '../src/setup.js';
-import { addTempBan, addWarn, applyEscalation, clearWarns, getWarns, processTempBans, removeWarn, stepForCount } from '../src/warns.js';
+import { addTempBan, addWarn, applyEscalation, clearWarns, getWarns, processTempBans, removeWarn, resetTempBanCache, stepForCount } from '../src/warns.js';
 
 const dirs = [];
 beforeEach(() => {
+  resetLockdownCache();
+  resetTempBanCache();
   const dir = mkdtempSync(join(tmpdir(), 'saa-staff-'));
   dirs.push(dir);
   runtime.kv = new FileKv(join(dir, 'kv.json'));

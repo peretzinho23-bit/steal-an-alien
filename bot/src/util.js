@@ -14,9 +14,18 @@ export function findChannel(guild, key, { voice = false } = {}) {
   let newest = null;
   for (const c of guild.channels.cache.values()) {
     if (!types.has(c.type) || channelKey(c.name) !== key) continue;
-    if (!newest || BigInt(c.id) > BigInt(newest.id)) newest = c;
+    if (!newest || isNewer(c.id, newest.id)) newest = c;
   }
   return newest;
+}
+
+/** Discord ids are numeric snowflakes (bigger = newer); anything else falls back to plain string order. */
+function isNewer(a, b) {
+  try {
+    return BigInt(a) > BigInt(b);
+  } catch {
+    return String(a) > String(b);
+  }
 }
 
 export function findRole(guild, name) {
