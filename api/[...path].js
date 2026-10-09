@@ -1,3 +1,2 @@
-// Vercel only runs functions from the /api folder of the project root, so this file hands the request
-// to the real handler in web/. Keep the logic in web/api/[...path].js.
+// Kept for single-segment routes (/api/me, /api/health). Nested routes go through api/handler.js (see vercel.json).
 export { default } from '../web/api/[...path].js';

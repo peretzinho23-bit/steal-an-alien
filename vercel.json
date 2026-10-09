@@ -3,8 +3,12 @@
   "outputDirectory": "web/public",
   "cleanUrls": true,
   "functions": {
+    "api/handler.js": { "maxDuration": 15 },
     "api/[...path].js": { "maxDuration": 15 }
   },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/handler?__path=:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
