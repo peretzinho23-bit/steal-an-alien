@@ -3,3 +3,8 @@ node_modules/
 *.log
 data/
 dist/
+.env.local
+.env.*.local
+.vercel/
+.dev-kv.json
+.vscode/

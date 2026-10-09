@@ -1,0 +1,15 @@
+{
+  "name": "steal-an-alien-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Staff dashboard for the Steal an Alien Discord server (Vercel-ready, also runs on any Node host)",
+  "scripts": {
+    "start": "node dev-server.js",
+    "dev": "node dev-server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}
