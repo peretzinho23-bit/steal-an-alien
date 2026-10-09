@@ -18,10 +18,10 @@ const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * when the bot process is offline. Retries once on a rate limit, never retries anything else.
  */
 export function createDiscord({ token, guildId, fetchImpl = globalThis.fetch, sleep = defaultSleep }) {
-  if (!token) throw new Error('DISCORD_BOT_TOKEN is not set.');
-  if (!guildId) throw new Error('GUILD_ID is not set.');
-
+  // Missing settings are reported by /api/health and the sign-in page, not by crashing at startup.
   async function request(method, path, { body, query, reason } = {}, attempt = 0) {
+    if (!token) throw new DiscordApiError(503, 0, 'DISCORD_BOT_TOKEN is not set on the site.', path);
+    if (!guildId) throw new DiscordApiError(503, 0, 'GUILD_ID is not set on the site.', path);
     const url = new URL(`${API}${path}`);
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     const headers = { Authorization: `Bot ${token}`, 'User-Agent': 'StealAnAlienDashboard (staff dashboard, 1.0)' };

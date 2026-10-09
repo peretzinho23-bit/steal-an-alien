@@ -212,8 +212,9 @@ test('discord client: auth header, JSON body, query string, audit-log reason enc
   assert.equal(await d.kick('222222222222222222', 'rule 1: שלום'), null);
   assert.equal(seen[1].init.method, 'DELETE');
   assert.doesNotMatch(seen[1].init.headers['X-Audit-Log-Reason'], /[^\x20-\x7e]/, 'header must be plain ASCII');
-  assert.throws(() => createDiscord({ token: '', guildId: 'x', fetchImpl }), /DISCORD_BOT_TOKEN/);
-  assert.throws(() => createDiscord({ token: 't', guildId: '', fetchImpl }), /GUILD_ID/);
+  // a missing setting is an error at call time (shown as a clear message), never a crash at startup
+  await assert.rejects(() => createDiscord({ token: '', guildId: 'x', fetchImpl }).guild(), /DISCORD_BOT_TOKEN/);
+  await assert.rejects(() => createDiscord({ token: 't', guildId: '', fetchImpl }).guild(), /GUILD_ID/);
 });
 
 test('discord client: retries once on a rate limit, then gives up; errors carry status, code and message', async () => {
