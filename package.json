@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Discord server builder + community bot for the Roblox game Steal an Alien",
   "type": "module",
-  "main": "src/index.js",
+  "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
     "pack": "node scripts/pack.js",
@@ -14,7 +14,7 @@
     "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=18.17"
   },
   "license": "UNLICENSED",
   "private": true,

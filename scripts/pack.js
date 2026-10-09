@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'dist', 'steal-an-alien-bot.zip');
-const files = ['src', 'package.json', 'package-lock.json', '.env'];
+const files = ['index.js', 'src', 'package.json', 'package-lock.json', '.env'];
 
 for (const f of files) {
   if (!existsSync(join(root, f))) {

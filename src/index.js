@@ -1,3 +1,4 @@
+import './env.js'; // must stay first: fills process.env from .env before anything reads it
 import { fileURLToPath } from 'node:url';
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { MEMBER_ROLE_KEY, ROLES } from './blueprint.js';
@@ -8,14 +9,6 @@ import { LevelStore } from './levels/store.js';
 import { ensureRankRoles, LevelSystem } from './levels/system.js';
 import { handleTicketButton } from './tickets.js';
 import { findChannel, findRole } from './util.js';
-
-// Hosts either provide real environment variables or a .env file next to package.json; support both.
-// loadEnvFile never overrides a variable that is already set.
-try {
-  process.loadEnvFile();
-} catch {
-  /* no .env file: rely on the environment */
-}
 
 const { DISCORD_TOKEN, DATA_DIR } = process.env;
 if (!DISCORD_TOKEN) {
