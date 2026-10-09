@@ -109,7 +109,7 @@ export function createHandler(getServices) {
       const { route, params } = matched;
 
       const problems = configProblems(services.config);
-      if (problems.length && route.access !== 'public') throw new HttpError(503, `The site is not configured yet. Missing: ${problems.join(', ')}.`);
+      if (problems.length && route.access !== 'public') throw new HttpError(503, `האתר עוד לא מוגדר. חסרים משתנים: ${problems.join(', ')}.`);
 
       const unsafe = UNSAFE.has(req.method);
       if (unsafe) checkCsrf(req);

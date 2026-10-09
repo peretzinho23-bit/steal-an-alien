@@ -63,7 +63,7 @@ export function requireLevel(session, required) {
 
 export function login({ req, services, url }) {
   const { config } = services;
-  if (!config.clientId) throw new HttpError(500, 'The site is not configured yet (DISCORD_CLIENT_ID is missing).');
+  if (!config.clientId) throw new HttpError(500, 'האתר עוד לא מוגדר (חסר DISCORD_CLIENT_ID).');
   const state = newState();
   const redirectUri = `${originOf(req)}/api/auth/callback`;
   const target = new URL('https://discord.com/oauth2/authorize');
