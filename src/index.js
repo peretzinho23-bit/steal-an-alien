@@ -9,6 +9,14 @@ import { ensureRankRoles, LevelSystem } from './levels/system.js';
 import { handleTicketButton } from './tickets.js';
 import { findChannel, findRole } from './util.js';
 
+// Hosts either provide real environment variables or a .env file next to package.json; support both.
+// loadEnvFile never overrides a variable that is already set.
+try {
+  process.loadEnvFile();
+} catch {
+  /* no .env file: rely on the environment */
+}
+
 const { DISCORD_TOKEN, DATA_DIR } = process.env;
 if (!DISCORD_TOKEN) {
   console.error('Missing DISCORD_TOKEN. Copy .env.example to .env and fill it in.');
