@@ -29,6 +29,7 @@ export const ROUTES = [
   ['POST', '/api/messages/react', 'staff', messages.react],
 
   ['GET', '/api/members/search', 'staff', members.search],
+  ['GET', '/api/members/list', 'staff', members.list],
   ['GET', '/api/members/warned', 'staff', members.warned],
   ['GET', '/api/members/:id', 'staff', members.detail],
   ['POST', '/api/mod/warn', 'staff', members.warn],

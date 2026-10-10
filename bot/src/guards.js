@@ -23,14 +23,33 @@ export function capsViolation(content, cfg) {
   return ratio !== null && ratio >= cfg.percent ? `too many capital letters (${Math.round(ratio)}%)` : null;
 }
 
-const URL_RE = /\bhttps?:\/\/([^\s/?#<>]+)/gi;
+const URL_RE = /\bhttps?:\/\/([^\s/?#<>"'(),;]+)/gi;
+// Discord turns "scam.gg/free" into a link even without http://, so the allow-list must see those too.
+// Only a host at the start of a word (after space, bracket or quote) counts; "file.png" is not a link.
+const BARE_RE = /(?:^|[\s(<"'[])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?=[/:?#\s)>"'\],;!]|$)/gi;
+const FILE_EXTENSIONS = new Set(['txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'json', 'js', 'py', 'lua', 'md', 'mp3', 'mp4', 'rbxl']);
 
-/** Hosts of every http(s) link in the text, lower-cased, without credentials or port. */
+/** Lower-case host without credentials, port or the trailing dot ("Roblox.com." -> "roblox.com"). */
+const cleanHost = (raw) => raw.toLowerCase().replace(/^.*@/, '').replace(/:\d+$/, '').replace(/\.+$/, '');
+
+/** Hosts of every link in the text (with http(s) or bare), lower-cased, without credentials or port. */
 export function linkHosts(content) {
-  return [...content.matchAll(URL_RE)].map((m) => m[1].toLowerCase().replace(/^.*@/, '').replace(/:\d+$/, ''));
+  const hosts = [...content.matchAll(URL_RE)].map((m) => cleanHost(m[1]));
+  for (const m of content.matchAll(BARE_RE)) {
+    const host = cleanHost(m[1]);
+    if (!FILE_EXTENSIONS.has(host.split('.').pop())) hosts.push(host);
+  }
+  return hosts;
 }
 
-export const hostAllowed = (host, allow) => allow.some((d) => host === d || host.endsWith(`.${d}`));
+/** Exact host or a subdomain of an allowed domain. Look-alikes (roblox.com.evil.io, punycode) do not match. */
+export const hostAllowed = (host, allow) => {
+  const h = cleanHost(host);
+  return allow.some((d) => {
+    const domain = String(d).toLowerCase().replace(/\.+$/, '');
+    return domain.length > 0 && (h === domain || h.endsWith(`.${domain}`));
+  });
+};
 
 /** Allow-list mode: any link whose host is not on the list is a violation. */
 export function linkViolation(content, cfg) {
@@ -105,7 +124,11 @@ async function removeMessages(message, refs) {
   for (const [channelId, ids] of byChannel) {
     const channel = message.guild.channels.cache.get(channelId);
     if (!channel) continue;
-    await (ids.length > 1 ? channel.bulkDelete(ids, true) : channel.messages.delete(ids[0])).catch(() => {});
+    // Discord's bulk delete takes at most 100 ids per call
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      await (chunk.length > 1 ? channel.bulkDelete(chunk, true) : channel.messages.delete(chunk[0])).catch(() => {});
+    }
   }
 }
 

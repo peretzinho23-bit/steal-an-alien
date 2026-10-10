@@ -73,6 +73,73 @@ export async function search({ url, services }) {
   };
 }
 
+const LIST_FILTERS = new Set(['all', 'staff', 'admins', 'bots', 'timeout', 'warned']);
+const LIST_SCAN = 1000;
+
+/**
+ * Browsable member list. Discord gives up to 1000 members after `after` (in id order); they are filtered here and the
+ * first `limit` matches are returned. `next` is the id to continue after (null when the list has ended).
+ */
+export async function list({ url, services }) {
+  const filter = url.searchParams.get('filter') || 'all';
+  if (!LIST_FILTERS.has(filter)) throw new HttpError(422, 'Filter must be all, staff, admins, bots, timeout or warned.');
+  const cursor = url.searchParams.get('after') || undefined;
+  const after = cursor === undefined ? undefined : requireId(cursor, 'Cursor');
+  const roleParam = url.searchParams.get('role') || undefined;
+  const role = roleParam === undefined ? undefined : requireId(roleParam, 'Role');
+  const parsed = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+  const limit = Number.isNaN(parsed) ? 50 : Math.min(100, Math.max(1, parsed));
+  const kv = services.kv ?? null;
+  if (filter === 'warned' && !kv) return { members: [], next: null, total: 0 };
+
+  const [members, roles, guild, warnIndex] = await Promise.all([
+    services.discord.listMembers(after, LIST_SCAN),
+    services.roles(),
+    services.guild(),
+    kv ? createWarnStore(kv).users(services.config.guildId) : null,
+  ]);
+  const now = services.now();
+  const levelOf = (m) => computeLevel({ guildId: services.config.guildId, ownerId: guild.owner_id, userId: m.user.id, memberRoleIds: m.roles, guildRoles: roles });
+  const keep = (m, level) => {
+    if (role && !m.roles.includes(role)) return false;
+    switch (filter) {
+      case 'staff':
+        return level === 'staff' || level === 'admin';
+      case 'admins':
+        return level === 'admin';
+      case 'bots':
+        return Boolean(m.user.bot);
+      case 'timeout':
+        return Date.parse(m.communication_disabled_until ?? '') > now;
+      case 'warned':
+        return (warnIndex?.[m.user.id] ?? 0) > 0;
+      default:
+        return true;
+    }
+  };
+
+  const picked = [];
+  let more = false;
+  for (const m of members) {
+    const level = levelOf(m);
+    if (!keep(m, level)) continue;
+    if (picked.length === limit) {
+      more = true;
+      break;
+    }
+    picked.push({ m, level });
+  }
+  let next = null;
+  if (more) next = picked.at(-1).m.user.id;
+  else if (members.length === LIST_SCAN) next = members.at(-1).user.id;
+
+  return {
+    members: picked.map(({ m, level }) => ({ ...shape(m, roles, level), ...(warnIndex ? { warnCount: warnIndex[m.user.id] ?? 0 } : {}) })),
+    next,
+    total: members.length,
+  };
+}
+
 export async function detail({ params, services }) {
   const id = requireId(params.id, 'Member');
   const member = await memberOrNull(services, id);

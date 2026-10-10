@@ -80,7 +80,16 @@ export const CATEGORIES = [
   },
   {
     name: 'Voice Channels',
-    channels: [{ key: 'voice-general', name: 'General', type: 'voice', access: 'chat' }],
+    channels: [
+      { key: 'voice-general', name: 'General', type: 'voice', access: 'chat' },
+      { key: 'game-night', name: `🎮${SEP}Game Night`, type: 'voice', access: 'chat' },
+      { key: 'chill', name: `🎵${SEP}Chill`, type: 'voice', access: 'chat' },
+      { key: 'trading', name: `🤝${SEP}Trading`, type: 'voice', access: 'chat' },
+      { key: 'testers-voice', name: `🧪${SEP}Testers Voice`, type: 'voice', access: 'staff', viewers: ['tester', 'dev'] },
+      { key: 'afk', name: `🔇${SEP}AFK`, type: 'voice', access: 'chat' },
+      // join-to-create: each member who joins gets a temporary room of their own (see ./rooms.js)
+      { key: 'create-room', name: `➕${SEP}Create Room`, type: 'voice', access: 'chat' },
+    ],
   },
   {
     name: '🎮 GAME',

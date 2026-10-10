@@ -1,3 +1,5 @@
+import '../i18n/preview.js';
+import { t } from './i18n.js';
 import { h } from './ui.js';
 
 /**
@@ -33,9 +35,9 @@ function inline(text, ctx) {
     else if (m[3] !== undefined) out.push(h('u', {}, inline(m[3], ctx)));
     else if (m[4] !== undefined) out.push(h('s', {}, inline(m[4], ctx)));
     else if (m[5] !== undefined || m[6] !== undefined) out.push(h('em', {}, inline(m[5] ?? m[6], ctx)));
-    else if (m[7] !== undefined) out.push(h('span', { class: 'discord-mention', text: `@${ctx.roles?.find((r) => r.id === m[7])?.name ?? 'role'}` }));
-    else if (m[8] !== undefined) out.push(h('span', { class: 'discord-mention', text: `#${ctx.channels?.find((c) => c.id === m[8])?.name ?? 'channel'}` }));
-    else if (m[9] !== undefined) out.push(h('span', { class: 'discord-mention', text: '@member' }));
+    else if (m[7] !== undefined) out.push(h('span', { class: 'discord-mention', text: `@${ctx.roles?.find((r) => r.id === m[7])?.name ?? t('preview.mention.role')}` }));
+    else if (m[8] !== undefined) out.push(h('span', { class: 'discord-mention', text: `#${ctx.channels?.find((c) => c.id === m[8])?.name ?? t('preview.mention.channel')}` }));
+    else if (m[9] !== undefined) out.push(h('span', { class: 'discord-mention', text: `@${t('preview.mention.member')}` }));
     else if (m[10] !== undefined) out.push(h('span', { class: 'discord-mention', text: m[10] }));
     else if (m[11] !== undefined) out.push(h('a', { href: m[11], target: '_blank', rel: 'noopener noreferrer', text: m[11] }));
   }

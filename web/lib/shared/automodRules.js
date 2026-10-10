@@ -11,66 +11,123 @@ const TRIGGER = { KEYWORD: 1, SPAM: 3, KEYWORD_PRESET: 4, MENTION_SPAM: 5 };
 const ACTION = { BLOCK: 1, ALERT: 2, TIMEOUT: 3 };
 const PRESET_IDS = { profanity: 1, sexual: 2, slurs: 3 };
 
+/**
+ * Discord's documented limits (docs.discord.com, auto-moderation resource). buildRules enforces every one of them,
+ * so a bad value in the settings can never make Discord reject the whole rule set.
+ * allowList: KEYWORD rules allow 100; KEYWORD_PRESET rules allow 1000. We use 100 for both (the dashboard cap).
+ */
+export const LIMITS = Object.freeze({
+  keywordsPerRule: 1000,
+  keywordLength: 60,
+  regexPatterns: 10,
+  regexLength: 260,
+  allowList: 100,
+  exemptRoles: 20,
+  exemptChannels: 50,
+  customMessage: 150,
+  ruleNameLength: 100,
+  mentionLimit: [1, 50],
+  timeoutSeconds: 2419200, // 4 weeks
+});
+
 // Rust regex flavour (Discord's engine): no lookaround, no backreferences. Each pattern must be <= 260 chars.
+// Scam patterns are written as offers / calls to action, not as bare words: "I got free robux from a game event"
+// and "robux" alone are harmless and must not match.
 export const INVITE_PATTERNS = [String.raw`(?i)(discord\.gg|discord(app)?\.com/invite|dsc\.gg|invite\.gg)/[a-z0-9-]+`];
 export const SCAM_PATTERNS = [
-  String.raw`(?i)free\s*robux`,
-  String.raw`(?i)robux\s*(generator|giveaway|hack|gift|code)`,
-  String.raw`(?i)(claim|get)\s.{0,20}free\s*(robux|rbx|limiteds?|nitro)`,
-  String.raw`(?i)free\s*nitro`,
-  String.raw`(?i)(bit\.ly|tinyurl\.com|cutt\.ly|rb\.gy|is\.gd)/\S+`,
-  String.raw`(?i)steamcommunity\.com/gift`,
+  // "free robux generator", "FREE ROBUX HERE", "free nitro giveaway click", "free discord nitro gift"
+  String.raw`(?i)\b(free\s*(robux|rbx|limiteds?|nitro|discord\s*nitro)\s*(generator|giveaway|hack|gift|codes?|claim|here|now|click|link|website|site|tool|method|spin|for\s+(all|everyone))|(robux|rbx|nitro)\s*(generator|giveaway|hack|gift))\b`,
+  // "get free robux", "Claim your free limiteds", "grab free discord nitro"
+  String.raw`(?i)\b(claim|get|grab|redeem)\s.{0,20}\bfree\s*(robux|rbx|limiteds?|nitro|discord\s*nitro)\b`,
+  // "claim your reward at roblox-rewards.xyz": the phrase plus something that looks like a link (not "at the end")
+  String.raw`(?i)\bclaim\s+your\s+(free\s+|daily\s+)?(reward|prize|gift|robux|nitro|items?)\s+(at|on|via|here)\s*\S*[./]`,
+  // steam "gift" links
+  String.raw`(?i)\bsteamcommunity\.com/gifts?/`,
+  // link shorteners (scam links hide their target)
+  String.raw`(?i)\b(bit\.ly|tinyurl\.com|cutt\.ly|rb\.gy|is\.gd|t\.ly|goo\.gl|tiny\.cc|shorturl\.at)/\S+`,
+  // look-alike Roblox domains: roblox-free-robux.com, robux-gift.xyz, rbx-claim.net
+  String.raw`(?i)\b(robux|rbx|roblox)[-_]?(free|gift|claim|generator|hack|giveaway|rewards?)[a-z0-9-]*\.(com|net|xyz|gg|org|site|app|online|me|io|gift|shop)\b`,
+  // look-alike Discord gift/nitro domains: discord.gift/ABC, discord-nitro-free.xyz
+  String.raw`(?i)\b(discord\.gift/|discord[-_]?(nitro|gift|free)[a-z0-9-]*\.(com|net|xyz|gift|gg|org|site|app|online|me|io|shop))`,
 ];
 
-const rule = (name, triggerType, triggerMetadata, actions, exemptRoleIds) => ({
-  name: `${RULE_PREFIX}${name}`,
+/**
+ * Makes one custom word valid for Discord's keyword syntax. "*" is the only special character and it may only sit at
+ * the start or the end ("*cat*" = contains, "cat*" = starts with). Returns null for words that cannot be expressed:
+ * empty, only wildcards ("*" alone would block every message), a "*" in the middle, or too long.
+ */
+export function cleanKeyword(word) {
+  if (typeof word !== 'string') return null;
+  const m = word.trim().toLowerCase().match(/^(\**)(.*?)(\**)$/s);
+  const core = m[2].trim();
+  if (!core || core.includes('*')) return null;
+  const out = `${m[1] ? '*' : ''}${core}${m[3] ? '*' : ''}`;
+  return out.length <= LIMITS.keywordLength ? out : null;
+}
+
+/** Valid, unique keywords, at most `max`. */
+export function cleanKeywords(list, max = LIMITS.keywordsPerRule) {
+  const cleaned = (Array.isArray(list) ? list : []).map(cleanKeyword).filter(Boolean);
+  return [...new Set(cleaned)].slice(0, max);
+}
+
+/** Unique non-empty strings, at most `max` (role and channel ids, allow-list entries). */
+const capList = (list, max) => [...new Set((Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.length > 0))].slice(0, max);
+const clampInt = (v, [min, max]) => Math.min(max, Math.max(min, Math.trunc(Number(v)) || min));
+
+const rule = (name, triggerType, triggerMetadata, actions, { exemptRoleIds, exemptChannelIds }) => ({
+  name: `${RULE_PREFIX}${name}`.slice(0, LIMITS.ruleNameLength),
   event_type: 1,
   trigger_type: triggerType,
   trigger_metadata: triggerMetadata,
   actions,
   enabled: true,
-  exempt_roles: exemptRoleIds.slice(0, 20),
-  exempt_channels: [],
+  exempt_roles: capList(exemptRoleIds, LIMITS.exemptRoles),
+  exempt_channels: capList(exemptChannelIds, LIMITS.exemptChannels),
 });
 
-/** @returns the list of rules that should exist (empty when AutoMod is off). */
-export function buildRules(settings, { alertChannelId = null, exemptRoleIds = [] } = {}) {
+/**
+ * @returns the list of rules that should exist (empty when AutoMod is off).
+ * exemptRoleIds / exemptChannelIds: ids that AutoMod must ignore (staff roles, staff channels).
+ */
+export function buildRules(settings, { alertChannelId = null, exemptRoleIds = [], exemptChannelIds = [] } = {}) {
   const a = settings.automod;
   if (!a.enabled) return [];
-  const block = { type: ACTION.BLOCK, metadata: { custom_message: a.blockMessage } };
+  const exempt = { exemptRoleIds, exemptChannelIds };
+  const message = typeof a.blockMessage === 'string' ? a.blockMessage.trim().slice(0, LIMITS.customMessage) : '';
+  const block = { type: ACTION.BLOCK, metadata: message ? { custom_message: message } : {} };
   const alert = alertChannelId ? { type: ACTION.ALERT, metadata: { channel_id: alertChannelId } } : null;
   const base = [block, alert].filter(Boolean);
   const rules = [];
 
-  if (a.spam) rules.push(rule('Spam', TRIGGER.SPAM, {}, base, exemptRoleIds));
+  if (a.spam) rules.push(rule('Spam', TRIGGER.SPAM, {}, base, exempt));
 
   if (a.mentions.enabled) {
     const actions = [...base];
     if (a.mentions.timeoutMinutes > 0) {
-      actions.push({ type: ACTION.TIMEOUT, metadata: { duration_seconds: a.mentions.timeoutMinutes * 60 } });
+      // TIMEOUT is only allowed on KEYWORD and MENTION_SPAM rules
+      const seconds = Math.min(LIMITS.timeoutSeconds, Math.trunc(a.mentions.timeoutMinutes * 60));
+      actions.push({ type: ACTION.TIMEOUT, metadata: { duration_seconds: seconds } });
     }
     rules.push(
       rule('Mention spam', TRIGGER.MENTION_SPAM, {
-        mention_total_limit: a.mentions.limit,
-        mention_raid_protection_enabled: a.mentions.raidProtection,
-      }, actions, exemptRoleIds),
+        mention_total_limit: clampInt(a.mentions.limit, LIMITS.mentionLimit),
+        mention_raid_protection_enabled: Boolean(a.mentions.raidProtection),
+      }, actions, exempt),
     );
   }
 
-  if (a.badWords.enabled && a.badWords.presets.length) {
-    rules.push(
-      rule('Bad words', TRIGGER.KEYWORD_PRESET, {
-        presets: a.badWords.presets.map((p) => PRESET_IDS[p]),
-        allow_list: a.badWords.allow,
-      }, base, exemptRoleIds),
-    );
+  const presets = (a.badWords.presets ?? []).map((p) => PRESET_IDS[p]).filter(Boolean);
+  if (a.badWords.enabled && presets.length) {
+    rules.push(rule('Bad words', TRIGGER.KEYWORD_PRESET, { presets, allow_list: capList(a.badWords.allow, LIMITS.allowList) }, base, exempt));
   }
 
-  if (a.customWords.enabled && a.customWords.words.length) {
-    rules.push(rule('Custom words', TRIGGER.KEYWORD, { keyword_filter: a.customWords.words }, base, exemptRoleIds));
+  const custom = cleanKeywords(a.customWords.words);
+  if (a.customWords.enabled && custom.length) {
+    rules.push(rule('Custom words', TRIGGER.KEYWORD, { keyword_filter: custom }, base, exempt));
   }
-  if (a.invites.block) rules.push(rule('Invites', TRIGGER.KEYWORD, { regex_patterns: INVITE_PATTERNS }, base, exemptRoleIds));
-  if (a.scams.block) rules.push(rule('Scams', TRIGGER.KEYWORD, { regex_patterns: SCAM_PATTERNS }, base, exemptRoleIds));
+  if (a.invites.block) rules.push(rule('Invites', TRIGGER.KEYWORD, { regex_patterns: INVITE_PATTERNS.slice(0, LIMITS.regexPatterns) }, base, exempt));
+  if (a.scams.block) rules.push(rule('Scams', TRIGGER.KEYWORD, { regex_patterns: SCAM_PATTERNS.slice(0, LIMITS.regexPatterns) }, base, exempt));
   return rules;
 }
 

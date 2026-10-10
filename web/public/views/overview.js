@@ -1,133 +1,117 @@
+import '../i18n/overview.js';
 import { get, post } from '../lib/api.js';
 import { watchJob } from '../lib/common.js';
-import { ago, busy, confirmDialog, emptyState, fullTime, h, icon, modal, put, toast } from '../lib/ui.js';
+import { locale, t } from '../lib/i18n.js';
+import { ago, busy, clear, confirmDialog, emptyState, fullTime, h, icon, modal, put, toast } from '../lib/ui.js';
 
-const SOURCE_LABEL = { web: 'האתר', bot: 'הבוט' };
+const LOCK_MINUTES = [15, 30, 60, 180];
 
-/** The log stores English action names (shared by the bot and the site); the screen shows Hebrew. */
-const ACTION_HE = {
-  'Message sent': 'נשלחה הודעה',
-  'Message edited': 'הודעה נערכה',
-  'Message deleted': 'הודעה נמחקה',
-  'Reaction added': 'נוספה ריאקציה',
-  'Settings saved': 'ההגדרות נשמרו',
-  'Channel created': 'נוצר ערוץ',
-  'Channel edited': 'ערוץ נערך',
-  'Channel deleted': 'ערוץ נמחק',
-  'Role created': 'נוצר רול',
-  'Role deleted': 'רול נמחק',
-  'Member roles changed': 'רולים של חבר שונו',
-  'Lockdown requested': 'התבקשה נעילת חירום',
-  'Lockdown end requested': 'התבקש סיום נעילה',
-  'Lockdown ON': 'נעילת חירום הופעלה',
-  'Lockdown OFF': 'נעילת חירום הסתיימה',
-  'Panel refresh requested': 'התבקש רענון הודעה קבועה',
-  Timeout: 'השתקה',
-  'Timeout removed': 'השתקה הוסרה',
-  Untimeout: 'השתקה הוסרה',
-  Kick: 'הרחקה',
-  Ban: 'חסימה',
-  Unban: 'הסרת חסימה',
-  Tempban: 'חסימה זמנית',
-  Unwarn: 'אזהרה הוסרה',
-  'Warning removed': 'אזהרה הוסרה',
-  'Warnings cleared': 'אזהרות נוקו',
-  'Clear warnings': 'אזהרות נוקו',
-  Clear: 'מחיקת הודעות',
-  Announcement: 'הכרזה',
-  'Account age check': 'בדיקת גיל חשבון',
+/** The log stores English action names (shared by the bot and the site); the screen shows the current language. */
+const label = (key) => {
+  const text = t(key);
+  return text === key ? null : text;
 };
+
 export function actionLabel(action) {
-  if (ACTION_HE[action]) return ACTION_HE[action];
+  const known = label(`overview.action.${action}`);
+  if (known) return known;
   const warn = /^Warn #(\d+)$/.exec(action);
-  if (warn) return `אזהרה מספר ${warn[1]}`;
+  if (warn) return t('overview.warnNumber', { count: warn[1] });
   const auto = /^AutoMod: (.+)$/.exec(action);
-  if (auto) return `הגנה אוטומטית: ${{ flood: 'הצפה', duplicates: 'הודעות חוזרות', caps: 'אותיות גדולות', links: 'קישור אסור' }[auto[1]] ?? auto[1]}`;
+  if (auto) return t('overview.autoAction', { kind: label(`overview.auto.${auto[1]}`) ?? auto[1] });
   return action;
 }
 
 export async function render(main, { me }) {
   const [status, activity] = await Promise.all([get('/api/status'), get('/api/activity?limit=8')]);
 
-  put(main, 
-    h('header', { class: 'page-head' }, h('h1', { class: 'page-title', text: 'סקירה' }), h('p', { class: 'page-sub' }, h('bdi', { text: me.guild?.name ?? '' }), me.guild?.members ? ` · ${me.guild.members.toLocaleString('he-IL')} חברים` : '')),
+  put(
+    main,
+    h('header', { class: 'page-head' }, h('h1', { class: 'page-title', text: t('overview.title') }), h('p', { class: 'page-sub' }, h('bdi', { text: me.guild?.name ?? '' }), me.guild?.members ? t('overview.memberCount', { count: me.guild.members.toLocaleString(locale()) }) : '')),
   );
 
   if (!status.redis) {
-    put(main, 
+    put(
+      main,
       h(
         'div',
         { class: 'banner', role: 'status' },
         icon('alert'),
-        h('div', {}, h('p', { class: 'item-title', text: 'האחסון המשותף לא מחובר' }), h('p', { text: 'בלי Upstash Redis אי אפשר לשמור הגדרות אוטו-אדמין, אזהרות ויומן פעילות, ואי אפשר לשלוח לבוט פקודות כמו נעילת חירום. הכרזות, הודעות וניהול ערוצים עובדים כרגיל. ההוראות במדריך ההתקנה.' })),
+        h('div', {}, h('p', { class: 'item-title', text: t('overview.storage.title') }), h('p', { text: t('overview.storage.text') })),
       ),
     );
   } else if (!status.bot.online) {
-    put(main, 
-      h('div', { class: 'banner banner-bad', role: 'status' }, icon('alert'), h('div', {}, h('p', { class: 'item-title', text: 'הבוט לא שולח סימן חיים' }), h('p', { text: status.bot.at ? `הסימן האחרון היה ${ago(status.bot.at)}. בדוק שהבוט רץ באירוח.` : 'עוד לא התקבל סימן חיים. בדוק שהבוט רץ ושהוא מחובר לאותו Redis.' }))),
+    put(
+      main,
+      h('div', { class: 'banner banner-bad', role: 'status' }, icon('alert'), h('div', {}, h('p', { class: 'item-title', text: t('overview.botSilent.title') }), h('p', { text: status.bot.at ? t('overview.botSilent.last', { when: ago(status.bot.at) }) : t('overview.botSilent.none') }))),
     );
   }
 
   const botCard = h(
     'section',
     { class: 'card' },
-    h('h2', { class: 'card-title', text: 'הבוט' }),
+    h('h2', { class: 'card-title', text: t('overview.bot') }),
     h(
       'div',
       { class: 'stack' },
-      h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: 'מצב' }), h('span', { class: `stat-value ${status.bot.online ? '' : 'muted'}` }, h('span', { class: `badge ${status.bot.online ? 'badge-good' : 'badge-bad'}` }, h('span', { class: 'dot' }), status.bot.online ? 'מחובר' : status.redis ? 'לא מגיב' : 'לא ידוע'))),
-      status.bot.at ? h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: 'סימן חיים אחרון' }), h('span', { text: ago(status.bot.at), title: fullTime(status.bot.at) })) : null,
-      status.bot.ping !== null ? h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: 'השהיה מול Discord' }), h('span', { dir: 'ltr', class: 'mono', text: `${status.bot.ping}ms` })) : null,
+      h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: t('overview.state') }), h('span', { class: `stat-value ${status.bot.online ? '' : 'muted'}` }, h('span', { class: `badge ${status.bot.online ? 'badge-good' : 'badge-bad'}` }, h('span', { class: 'dot' }), status.bot.online ? t('overview.online') : status.redis ? t('overview.notResponding') : t('overview.unknown')))),
+      status.bot.at ? h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: t('overview.lastSeen') }), h('span', { text: ago(status.bot.at), title: fullTime(status.bot.at) })) : null,
+      status.bot.ping !== null ? h('div', { class: 'stat' }, h('span', { class: 'stat-label', text: t('overview.ping') }), h('span', { dir: 'ltr', class: 'mono', text: `${status.bot.ping}ms` })) : null,
     ),
   );
 
   const lockedUntil = status.lockdown?.until;
-  const lockCard = h('section', { class: 'card' }, h('h2', { class: 'card-title', text: 'נעילת חירום' }));
+  const lockCard = h('section', { class: 'card' }, h('h2', { class: 'card-title', text: t('overview.lockdown') }));
   if (lockedUntil && lockedUntil > Date.now()) {
-    put(lockCard, 
-      h('p', { class: 'card-sub' }, `השרת נעול. יפתח שוב ${ago(lockedUntil)}${status.lockdown.by ? `, הופעל על ידי ${status.lockdown.by}` : ''}.`),
-      h('button', { class: 'btn btn-primary', type: 'button', disabled: !status.redis, onClick: (e) => setLockdown(e.currentTarget, false) }, icon('unlock'), 'סיים את הנעילה'),
+    put(
+      lockCard,
+      h('p', { class: 'card-sub' }, status.lockdown.by ? t('overview.lockedBy', { when: ago(lockedUntil), by: status.lockdown.by }) : t('overview.locked', { when: ago(lockedUntil) })),
+      h('button', { class: 'btn btn-primary', type: 'button', disabled: !status.redis, onClick: (e) => setLockdown(e.currentTarget, false) }, icon('unlock'), t('overview.endLock')),
     );
   } else {
-    put(lockCard, 
-      h('p', { class: 'card-sub', text: 'במקרה של פשיטה: חוסם כתיבה בערוצי הצ׳אט הציבוריים ומשהה הזמנות. הצוות והאדמינים ממשיכים לכתוב.' }),
-      h('button', { class: 'btn btn-danger', type: 'button', disabled: !status.redis, onClick: (e) => startLockdown(e.currentTarget) }, icon('lock'), 'הפעל נעילה'),
+    put(
+      lockCard,
+      h('p', { class: 'card-sub', text: t('overview.lockHelp') }),
+      h('button', { class: 'btn btn-danger', type: 'button', disabled: !status.redis, onClick: (e) => startLockdown(e.currentTarget) }, icon('lock'), t('overview.startLock')),
     );
   }
 
   const quick = h(
     'section',
     { class: 'card' },
-    h('h2', { class: 'card-title', text: 'קיצורים' }),
-    h('div', { class: 'stack' }, h('a', { class: 'btn btn-primary', href: '#/announce' }, icon('megaphone'), 'כתוב הכרזה'), h('a', { class: 'btn btn-secondary', href: '#/members' }, icon('search'), 'חפש חבר'), h('a', { class: 'btn btn-secondary', href: '#/automod' }, icon('shield'), 'הגדרות אוטו-אדמין')),
+    h('h2', { class: 'card-title', text: t('overview.shortcuts') }),
+    h('div', { class: 'stack' }, h('a', { class: 'btn btn-primary', href: '#/announce' }, icon('megaphone'), t('overview.shortcut.announce')), h('a', { class: 'btn btn-secondary', href: '#/members' }, icon('search'), t('overview.shortcut.members')), h('a', { class: 'btn btn-secondary', href: '#/automod' }, icon('shield'), t('overview.shortcut.automod'))),
   );
 
   put(main, h('div', { class: 'grid-2' }, botCard, lockCard, quick));
 
   const entries = activity.entries ?? [];
-  put(main, 
+  put(
+    main,
     h(
       'section',
       { class: 'card' },
-      h('h2', { class: 'card-title', text: 'פעילות אחרונה' }),
+      h('h2', { class: 'card-title', text: t('overview.recent') }),
       entries.length
         ? h('ul', { class: 'list' }, entries.map(activityItem))
-        : emptyState('עוד אין פעילות', status.redis ? 'כשמישהו מהצוות יעשה פעולה, היא תופיע כאן.' : 'היומן צריך את האחסון המשותף כדי לעבוד.'),
-      entries.length ? h('a', { href: '#/log', class: 'small', text: 'כל היומן' }) : null,
+        : emptyState(t('overview.noActivity'), status.redis ? t('overview.noActivityText') : t('overview.noActivityNoStorage')),
+      entries.length ? h('a', { href: '#/log', class: 'small', text: t('overview.allLog') }) : null,
     ),
   );
 }
 
 export function activityItem(e) {
+  const source = e.source === 'web' ? t('overview.source.web') : e.source === 'bot' ? t('overview.source.bot') : e.source;
+  const actor = e.actor?.name ?? e.moderator?.name;
   return h(
     'li',
     {},
-    h('span', { class: `badge ${e.source === 'web' ? 'badge-accent' : ''}`, text: SOURCE_LABEL[e.source] ?? e.source }),
+    h('span', { class: `badge ${e.source === 'web' ? 'badge-accent' : ''}`, text: source }),
     h(
       'div',
       { class: 'item-main' },
       h('div', { class: 'item-title', dir: 'auto', text: actionLabel(e.action) }),
-      h('div', { class: 'muted small', dir: 'auto' }, [e.actor?.name ? `על ידי ${e.actor.name}` : e.moderator?.name ? `על ידי ${e.moderator.name}` : null, e.target?.name ?? (typeof e.target === 'string' ? e.target : null), e.details ?? e.reason].filter(Boolean).join(' · ')),
+      h('div', { class: 'muted small', dir: 'auto' }, [actor ? t('overview.by', { name: actor }) : null, e.target?.name ?? (typeof e.target === 'string' ? e.target : null), e.details ?? e.reason].filter(Boolean).join(' · ')),
     ),
     h('time', { class: 'muted small', title: fullTime(e.at), datetime: new Date(e.at).toISOString(), text: ago(e.at) }),
   );
@@ -136,33 +120,33 @@ export function activityItem(e) {
 async function startLockdown(button) {
   const minutes = await modal(
     (close) => {
-      const select = h('select', { class: 'input', 'aria-label': 'משך הנעילה' }, [15, 30, 60, 180].map((m) => h('option', { value: m, text: m < 60 ? `${m} דקות` : `${m / 60} ${m === 60 ? 'שעה' : 'שעות'}` })));
+      const select = h('select', { class: 'input', 'aria-label': t('overview.lockDurationAria') }, LOCK_MINUTES.map((m) => h('option', { value: m, text: t(`overview.lock.${m}`) })));
       return h(
         'div',
         { class: 'dlg-body' },
-        h('h2', { class: 'dlg-title', text: 'להפעיל נעילת חירום?' }),
-        h('p', { class: 'dlg-text', text: 'אף אחד חוץ מהצוות לא יוכל לכתוב בערוצי הצ׳אט, והזמנות לשרת יושהו. הבוט ישחרר את הנעילה אוטומטית בסוף הזמן.' }),
-        h('label', { class: 'field' }, h('span', { class: 'field-label', text: 'משך' }), select),
-        h('div', { class: 'dlg-actions' }, h('button', { class: 'btn btn-danger', type: 'button', onClick: () => close(Number(select.value)) }, 'הפעל נעילה'), h('button', { class: 'btn btn-ghost', type: 'button', onClick: () => close(null) }, 'ביטול')),
+        h('h2', { class: 'dlg-title', text: t('overview.lockTitle') }),
+        h('p', { class: 'dlg-text', text: t('overview.lockText') }),
+        h('label', { class: 'field' }, h('span', { class: 'field-label', text: t('overview.lockDuration') }), select),
+        h('div', { class: 'dlg-actions' }, h('button', { class: 'btn btn-danger', type: 'button', onClick: () => close(Number(select.value)) }, t('overview.lockConfirm')), h('button', { class: 'btn btn-ghost', type: 'button', onClick: () => close(null) }, t('ui.cancel'))),
       );
     },
-    { label: 'נעילת חירום' },
+    { label: t('overview.lockdown') },
   );
   if (!minutes) return;
   await send(button, { on: true, minutes });
 }
 
 async function setLockdown(button, on) {
-  if (!on && !(await confirmDialog({ title: 'לסיים את הנעילה?', body: 'הצ׳אט ייפתח שוב לכולם וההזמנות יחזרו לעבוד.', confirmLabel: 'סיים נעילה' }))) return;
+  if (!on && !(await confirmDialog({ title: t('overview.endTitle'), body: t('overview.endText'), confirmLabel: t('overview.endConfirm') }))) return;
   await send(button, { on });
 }
 
 async function send(button, body) {
-  await busy(button, 'שולח לבוט...', async () => {
+  await busy(button, t('overview.sending'), async () => {
     try {
       const r = await post('/api/lockdown', body);
-      toast(r.botOnline ? 'נשלח לבוט. ממתין שיבצע...' : 'נשלח, אבל הבוט לא נראה מחובר. אם הוא לא יענה תוך 5 דקות, הבקשה תפוג.', r.botOnline ? 'ok' : 'error');
-      const done = await watchJob(r.id, body.on ? 'הנעילה הופעלה' : 'הנעילה הסתיימה');
+      toast(r.botOnline ? t('overview.queued') : t('overview.queuedOffline'), r.botOnline ? 'ok' : 'error');
+      const done = await watchJob(r.id, body.on ? t('overview.lockDone') : t('overview.unlockDone'));
       if (done?.ok) location.reload();
     } catch (e) {
       toast(e.message, 'error');

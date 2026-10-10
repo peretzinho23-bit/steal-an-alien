@@ -1,3 +1,5 @@
+import { locale, t } from './i18n.js';
+
 // Small DOM helpers. Text always goes in as text nodes (never as HTML), so names and messages written by
 // other people can never inject markup into the dashboard.
 
@@ -93,18 +95,18 @@ export function icon(name, { size = 20, label } = {}) {
 
 // ---- time ---------------------------------------------------------------------------------------------
 
-const rtf = new Intl.RelativeTimeFormat('he', { numeric: 'auto' });
 export function ago(ts, now = Date.now()) {
+  const rtf = new Intl.RelativeTimeFormat(locale(), { numeric: 'auto' });
   const s = Math.round((ts - now) / 1000);
   const abs = Math.abs(s);
-  if (abs < 45) return 'ממש עכשיו';
+  if (abs < 45) return t('ui.time.now');
   if (abs < 3600) return rtf.format(Math.round(s / 60), 'minute');
   if (abs < 86400) return rtf.format(Math.round(s / 3600), 'hour');
   if (abs < 86400 * 30) return rtf.format(Math.round(s / 86400), 'day');
-  return new Date(ts).toLocaleDateString('he-IL');
+  return new Date(ts).toLocaleDateString(locale());
 }
 
-export const fullTime = (ts) => new Date(ts).toLocaleString('he-IL', { dateStyle: 'medium', timeStyle: 'short' });
+export const fullTime = (ts) => new Date(ts).toLocaleString(locale(), { dateStyle: 'medium', timeStyle: 'short' });
 
 // ---- feedback -----------------------------------------------------------------------------------------
 
@@ -138,10 +140,10 @@ export function modal(render, { label }) {
  * Confirmation dialog. With `typeToConfirm` the person must type that exact text first (for deletions).
  * @returns Promise<boolean>
  */
-export function confirmDialog({ title, body, confirmLabel = 'אישור', danger = false, typeToConfirm = null }) {
+export function confirmDialog({ title, body, confirmLabel = t('ui.confirm'), danger = false, typeToConfirm = null }) {
   return modal(
     (close) => {
-      const input = typeToConfirm ? h('input', { class: 'input', dir: 'auto', autocomplete: 'off', 'aria-label': 'הקלד לאישור' }) : null;
+      const input = typeToConfirm ? h('input', { class: 'input', dir: 'auto', autocomplete: 'off', 'aria-label': t('ui.type.aria') }) : null;
       const ok = h('button', { class: `btn ${danger ? 'btn-danger' : 'btn-primary'}`, type: 'button', disabled: Boolean(typeToConfirm), onClick: () => close(true) }, confirmLabel);
       if (input) input.addEventListener('input', () => (ok.disabled = input.value !== typeToConfirm));
       return h(
@@ -149,8 +151,8 @@ export function confirmDialog({ title, body, confirmLabel = 'אישור', danger
         { class: 'dlg-body' },
         h('h2', { class: 'dlg-title', text: title }),
         body ? h('p', { class: 'dlg-text', dir: 'auto' }, body) : null,
-        typeToConfirm ? h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'כדי לאשר, הקלד: ', h('bdi', { class: 'mono', text: typeToConfirm })), input) : null,
-        h('div', { class: 'dlg-actions' }, ok, h('button', { class: 'btn btn-ghost', type: 'button', onClick: () => close(false) }, 'ביטול')),
+        typeToConfirm ? h('label', { class: 'field' }, h('span', { class: 'field-label' }, t('ui.type.to.confirm'), h('bdi', { class: 'mono', text: typeToConfirm })), input) : null,
+        h('div', { class: 'dlg-actions' }, ok, h('button', { class: 'btn btn-ghost', type: 'button', onClick: () => close(false) }, t('ui.cancel'))),
       );
     },
     { label: title },

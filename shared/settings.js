@@ -4,6 +4,8 @@
  * comes out complete, typed and inside safe limits.
  */
 
+import { cleanKeywords } from './automodRules.js';
+
 export const SETTINGS_VERSION = 1;
 
 export const PRESETS = ['profanity', 'sexual', 'slurs']; // Discord keyword presets 1, 2, 3
@@ -26,11 +28,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
     flood: { enabled: true, messages: 6, seconds: 5, timeoutMinutes: 5 },
     duplicates: { enabled: true, count: 3, seconds: 30 },
     caps: { enabled: false, minLength: 12, percent: 70 },
+    // Kids' community: by default warnings only ever lead to timeouts. Kick and ban are an explicit opt-in.
     warns: {
       escalation: [
         { at: 3, action: 'timeout', minutes: 60 },
-        { at: 5, action: 'kick' },
-        { at: 7, action: 'ban' },
+        { at: 5, action: 'timeout', minutes: 1440 },
       ],
     },
     exemptRoles: ['Moderator', 'Admin', 'Developer'],
@@ -116,7 +118,8 @@ export function normalizeSettings(input) {
       },
       customWords: {
         enabled: bool(sub('customWords').enabled, D.automod.customWords.enabled),
-        words: strList(sub('customWords').words, [], { max: 1000, maxLen: 60, lower: true }),
+        // "*" is Discord's wildcard (start/end only); words that cannot be expressed are dropped, see cleanKeyword
+        words: cleanKeywords(strList(sub('customWords').words, [], { max: 1000, maxLen: 60, lower: true })),
       },
       invites: { block: bool(sub('invites').block, D.automod.invites.block) },
       scams: { block: bool(sub('scams').block, D.automod.scams.block) },

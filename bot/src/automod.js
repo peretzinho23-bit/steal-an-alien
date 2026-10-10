@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 import { buildRules, syncAutoModRules } from './shared/automodRules.js';
 import { getSettings } from './runtime.js';
 import { logChannel } from './modlog.js';
-import { findRole } from './util.js';
+import { findChannel, findRole } from './util.js';
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 const lastApplied = new Map(); // guildId -> hash of the rules we last pushed
+
+/** Staff areas are never filtered: nobody's staff talk gets blocked or flagged (channel keys from blueprint.js). */
+export const STAFF_CHANNEL_KEYS = ['mod-log', 'staff-chat', 'ticket-logs', 'testers-chat'];
 
 /** discord.js REST wrapped into the (method, path, body) shape the shared sync code expects. */
 const restFor = (client) => (method, path, body) => {
@@ -16,7 +19,8 @@ const restFor = (client) => (method, path, body) => {
 /** The rules this guild should have right now, with names resolved to ids. */
 export function desiredRules(guild, settings = getSettings()) {
   const exemptRoleIds = settings.automod.exemptRoles.map((name) => findRole(guild, name)?.id).filter(Boolean);
-  return buildRules(settings, { alertChannelId: logChannel(guild)?.id ?? null, exemptRoleIds });
+  const exemptChannelIds = STAFF_CHANNEL_KEYS.map((key) => findChannel(guild, key)?.id).filter(Boolean);
+  return buildRules(settings, { alertChannelId: logChannel(guild)?.id ?? null, exemptRoleIds, exemptChannelIds });
 }
 
 /**

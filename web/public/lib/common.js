@@ -1,4 +1,5 @@
 import { get } from './api.js';
+import { t } from './i18n.js';
 import { h, toast } from './ui.js';
 
 let guildPromise = null;
@@ -21,18 +22,18 @@ export async function watchJob(id, doneLabel) {
       const { results } = await get('/api/jobs');
       const found = results.find((r) => r.id === id);
       if (found) {
-        toast(found.ok ? `${doneLabel}: ${found.message}` : `הבוט לא הצליח: ${found.message}`, found.ok ? 'ok' : 'error');
+        toast(found.ok ? `${doneLabel}: ${found.message}` : t('common.job.failed', { message: found.message }), found.ok ? 'ok' : 'error');
         return found;
       }
     } catch {
       return null;
     }
   }
-  toast('הבוט לא ענה בדקה האחרונה. בדוק שהוא פועל.', 'error');
+  toast(t('common.job.timeout'), 'error');
   return null;
 }
 
-export const levelLabel = (level) => (level === 'admin' ? 'אדמין' : level === 'staff' ? 'צוות' : null);
+export const levelLabel = (level) => (level === 'admin' || level === 'staff' ? t(`common.level.${level}`) : null);
 
 export function levelBadge(level) {
   const label = levelLabel(level);
@@ -49,7 +50,7 @@ export function channelOptions(channels, { type = 'text', selected } = {}) {
   const groups = [];
   const loose = channels.filter((c) => wanted(c) && !c.parentId);
   if (type === 'category') return categories.map((c) => h('option', { value: c.id, selected: c.id === selected, text: c.name }));
-  if (loose.length) groups.push(h('optgroup', { label: 'בלי קטגוריה' }, loose.map((c) => h('option', { value: c.id, selected: c.id === selected, text: `#${c.name}` }))));
+  if (loose.length) groups.push(h('optgroup', { label: t('common.category.none') }, loose.map((c) => h('option', { value: c.id, selected: c.id === selected, text: `#${c.name}` }))));
   for (const cat of categories) {
     const inside = channels.filter((c) => wanted(c) && c.parentId === cat.id);
     if (inside.length) groups.push(h('optgroup', { label: cat.name }, inside.map((c) => h('option', { value: c.id, selected: c.id === selected, text: `#${c.name}` }))));

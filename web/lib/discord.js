@@ -59,6 +59,8 @@ export function createDiscord({ token, guildId, fetchImpl = globalThis.fetch, sl
     roles: () => request('GET', `${g}/roles`),
     member: (userId) => request('GET', `${g}/members/${userId}`),
     searchMembers: (query, limit = 10) => request('GET', `${g}/members/search`, { query: { query, limit } }),
+    /** One page of the member list, in id order, starting after `after`. Needs the Server Members intent. */
+    listMembers: (after, limit = 1000) => request('GET', `${g}/members`, { query: { limit, after } }),
 
     sendMessage: (channelId, payload) => request('POST', `/channels/${channelId}/messages`, { body: payload }),
     editMessage: (channelId, messageId, payload) => request('PATCH', `/channels/${channelId}/messages/${messageId}`, { body: payload }),

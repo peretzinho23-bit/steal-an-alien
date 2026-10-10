@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
 import { checkSync } from '../../scripts/sync-shared.js';
-import { RULE_PREFIX, SCAM_PATTERNS, INVITE_PATTERNS, buildRules, diffRules, syncAutoModRules } from '../../shared/automodRules.js';
+import { LIMITS, RULE_PREFIX, SCAM_PATTERNS, INVITE_PATTERNS, buildRules, cleanKeyword, diffRules, syncAutoModRules } from '../../shared/automodRules.js';
 import { FileKv, KEYS, UpstashKv, kvFromEnv } from '../../shared/kv.js';
 import { computeLevel, hasLevel } from '../../shared/permissions.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../shared/settings.js';
@@ -239,20 +239,115 @@ test('buildRules: custom words and presets only produce a rule when there is som
 // Discord uses a Rust regex engine: no lookaround, no backreferences. JS cannot parse inline (?i), so test with the flag.
 const toJs = (p) => new RegExp(p.replace(/^\(\?i\)/, ''), 'i');
 
-test('scam and invite patterns avoid unsupported syntax and match what they should', () => {
+test('scam and invite patterns are valid Rust-flavoured regex within Discord limits', () => {
   for (const p of [...SCAM_PATTERNS, ...INVITE_PATTERNS]) {
     assert.doesNotMatch(p, /\(\?[=!<]|\\[1-9]/, `unsupported syntax in ${p}`);
     assert.doesNotThrow(() => toJs(p));
+    assert.ok(p.length <= LIMITS.regexLength, `longer than 260 chars: ${p}`);
   }
+  assert.ok(SCAM_PATTERNS.length <= LIMITS.regexPatterns && INVITE_PATTERNS.length <= LIMITS.regexPatterns);
+});
+
+// [text, should be flagged]. Scam texts are realistic Roblox/Discord scams; the harmless ones are kids' real sentences.
+const SCAM_CASES = [
+  ['FREE ROBUX HERE, click the link', true],
+  ['free robux generator 2026 no survey', true],
+  ['robux giveaway!! type claim in dms', true],
+  ['get free robux now at my site', true],
+  ['Claim your free limiteds before they are gone', true],
+  ['claim your reward at roblox-rewards.xyz', true],
+  ['steam gift for you: steamcommunity.com/gift/abc123', true],
+  ['click bit.ly/3xYzA to get it', true],
+  ['https://discord.gift/AbCdEf123 free nitro', true],
+  ['Free discord nitro for everyone, hurry', true],
+  ['roblox-free-robux.com is legit, login there', true],
+  ['I got free robux from a game event', false],
+  ['robux', false],
+  ['I want to buy robux with my allowance', false],
+  ['the alien was free to steal', false],
+  ['claim your reward at the end of the quest', false],
+  ['roblox.com/games/123 is my favorite game', false],
+  ['nitro boost is cool, I want nitro someday', false],
+  ['my bit.ly link is broken, sorry', false],
+  ['https://discord.com/channels/1/2 is the channel link', false],
+  ['what is the free robux glitch?', false],
+];
+
+test('scam patterns: realistic scams are flagged, kids\' harmless sentences are not', () => {
+  const flags = (text) => SCAM_PATTERNS.some((p) => toJs(p).test(text));
+  for (const [text, bad] of SCAM_CASES) assert.equal(flags(text), bad, `${bad ? 'should flag' : 'should not flag'}: ${text}`);
+  assert.ok(SCAM_CASES.filter(([, bad]) => bad).length >= 5 && SCAM_CASES.filter(([, bad]) => !bad).length >= 5);
+});
+
+test('every scam pattern is exercised by at least one positive case (no dead patterns)', () => {
+  const positives = SCAM_CASES.filter(([, bad]) => bad).map(([t]) => t);
+  for (const p of SCAM_PATTERNS) assert.ok(positives.some((t) => toJs(p).test(t)), `no positive case matches ${p}`);
+});
+
+test('invite patterns: invites flagged, ordinary discord.com pages not', () => {
   const any = (patterns, text) => patterns.some((p) => toJs(p).test(text));
-  for (const bad of ['FREE ROBUX here', 'free   robux', 'robux generator 2026', 'get your free nitro', 'claim your free robux now', 'http://bit.ly/abc123']) {
-    assert.ok(any(SCAM_PATTERNS, bad), `should flag: ${bad}`);
+  for (const bad of ['join discord.gg/abcDEF', 'https://discord.com/invite/xyz', 'dsc.gg/thing', 'DISCORD.GG/ABC', 'come to discordapp.com/invite/k9']) {
+    assert.ok(any(INVITE_PATTERNS, bad), bad);
   }
-  for (const ok of ['I got robux from the game', 'the alien was free to steal', 'roblox.com/games/123', 'nitro boost is cool']) {
-    assert.ok(!any(SCAM_PATTERNS, ok), `should not flag: ${ok}`);
+  for (const ok of ['https://discord.com/channels/1/2', 'discord is nice', 'support.discord.com/hc/en-us', 'discord.gg']) assert.ok(!any(INVITE_PATTERNS, ok), ok);
+});
+
+test('cleanKeyword: wildcards only at the edges; words that cannot be expressed are dropped', () => {
+  assert.equal(cleanKeyword('*'), null, '"*" alone would block every message');
+  assert.equal(cleanKeyword(' ** '), null);
+  assert.equal(cleanKeyword('f*o'), null, 'a wildcard in the middle is not valid Discord syntax');
+  assert.equal(cleanKeyword('*'.repeat(3) + 'x'.repeat(61)), null, 'too long');
+  assert.equal(cleanKeyword(42), null);
+  assert.equal(cleanKeyword('*cat*'), '*cat*');
+  assert.equal(cleanKeyword('**cat**'), '*cat*', 'runs of wildcards collapse to one');
+  assert.equal(cleanKeyword('  Bad Word  '), 'bad word', 'trimmed and lower-cased');
+  assert.equal(cleanKeyword('cat*'), 'cat*');
+});
+
+test('buildRules never sends a keyword Discord would reject, even from unnormalised settings', () => {
+  const raw = structuredClone(normalizeSettings({ automod: { customWords: { enabled: true } } }));
+  raw.automod.customWords.words = ['*', 'f*o', 'ok', 'x'.repeat(61), '*bad*', 'ok'];
+  const rule = buildRules(raw, ctx).find((r) => r.name.endsWith('Custom words'));
+  assert.deepEqual(rule.trigger_metadata.keyword_filter, ['ok', '*bad*']);
+  assert.deepEqual(normalizeSettings({ automod: { customWords: { enabled: true, words: ['*', 'mid*dle', '*ok*'] } } }).automod.customWords.words, ['*ok*']);
+});
+
+test('buildRules clamps every value to Discord limits, even when the settings are out of range', () => {
+  const raw = structuredClone(normalizeSettings({}));
+  raw.automod.badWords.allow = Array.from({ length: 150 }, (_, i) => `word${i}`);
+  raw.automod.blockMessage = 'y'.repeat(400);
+  raw.automod.mentions.timeoutMinutes = 999_999;
+  raw.automod.mentions.limit = 999;
+  const many = Array.from({ length: 30 }, (_, i) => `${i + 100}`);
+  const rules = buildRules(raw, { alertChannelId: 'alert', exemptRoleIds: many, exemptChannelIds: [...many, ...many, ...Array.from({ length: 40 }, (_, i) => `c${i}`)] });
+  for (const r of rules) {
+    assert.ok(r.exempt_roles.length <= LIMITS.exemptRoles, r.name);
+    assert.ok(r.exempt_channels.length <= LIMITS.exemptChannels, r.name);
+    assert.equal(new Set(r.exempt_channels).size, r.exempt_channels.length, 'no duplicate channel ids');
+    for (const a of r.actions) {
+      if (a.type === 1) assert.ok(a.metadata.custom_message.length <= LIMITS.customMessage);
+      if (a.type === 3) assert.equal(a.metadata.duration_seconds, LIMITS.timeoutSeconds, 'at most 4 weeks');
+    }
   }
-  for (const bad of ['join discord.gg/abcDEF', 'https://discord.com/invite/xyz', 'dsc.gg/thing']) assert.ok(any(INVITE_PATTERNS, bad), bad);
-  for (const ok of ['https://discord.com/channels/1/2', 'discord is nice', 'support.discord.com/hc/en-us']) assert.ok(!any(INVITE_PATTERNS, ok), ok);
+  const presetRule = rules.find((r) => r.trigger_type === 4);
+  assert.equal(presetRule.trigger_metadata.allow_list.length, LIMITS.allowList);
+  const mention = rules.find((r) => r.trigger_type === 5);
+  assert.equal(mention.trigger_metadata.mention_total_limit, 50);
+  assert.equal(buildRules({ ...raw, automod: { ...raw.automod, mentions: { ...raw.automod.mentions, limit: -4 } } }, ctx).find((r) => r.trigger_type === 5).trigger_metadata.mention_total_limit, 1);
+});
+
+test('buildRules: exempt channels are passed to every rule, de-duplicated and capped at 50', () => {
+  const s = normalizeSettings({});
+  const withStaff = buildRules(s, { alertChannelId: 'alert', exemptRoleIds: [], exemptChannelIds: ['mod', 'staff', 'mod'] });
+  for (const r of withStaff) assert.deepEqual(r.exempt_channels, ['mod', 'staff'], r.name);
+  assert.ok(buildRules(s, ctx).every((r) => r.exempt_channels.length === 0), 'no channels by default');
+});
+
+test('defaults never kick or ban: warnings only lead to timeouts unless the owner opts in', () => {
+  assert.ok(DEFAULT_SETTINGS.automod.warns.escalation.length > 0);
+  assert.ok(DEFAULT_SETTINGS.automod.warns.escalation.every((s) => s.action === 'timeout'));
+  assert.equal(DEFAULT_SETTINGS.raid.accountAgeAction, 'none');
+  assert.equal(DEFAULT_SETTINGS.raid.gate, false);
 });
 
 test('diffRules: creates missing, patches existing without trigger_type, removes stale, ignores foreign rules', () => {

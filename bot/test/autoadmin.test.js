@@ -47,6 +47,17 @@ test('capsRatio ignores short texts and scripts without case (Hebrew)', () => {
   assert.equal(Math.round(capsRatio('Hello Everybody how are you today friend', 12)), 6, '2 capitals out of 33 letters');
 });
 
+test('caps: Arabic and emoji-only texts are ignored, long shouted texts are caught, Hebrew is only ignored for its own letters', () => {
+  const caps = { enabled: true, minLength: 12, percent: 70 };
+  assert.equal(capsViolation('مرحبا بالجميع كيف الحال اليوم يا أصدقاء', caps), null, 'Arabic has no case');
+  assert.equal(capsViolation('😀😀😀😂😂😂🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥', caps), null, 'emoji only: no letters');
+  assert.equal(capsViolation('!!!!! ????? ..... 12345678901234', caps), null);
+  assert.match(capsViolation('SHOUTING '.repeat(500), caps), /capital letters/, 'a very long shouted text is caught');
+  assert.equal(capsViolation('שלום לכולם '.repeat(300), caps), null, 'a very long Hebrew text is not caps');
+  assert.match(capsViolation('שלום לכולם ' + 'HELLO EVERYONE HOW ARE YOU', caps), /capital letters/, 'Hebrew does not dilute the English shouting');
+  assert.doesNotThrow(() => capsRatio('a'.repeat(100_000), 12));
+});
+
 test('capsViolation fires at the configured percentage only', () => {
   const caps = { enabled: true, minLength: 12, percent: 70 };
   assert.match(capsViolation('STOP SHOUTING AT EVERYONE HERE', caps), /capital letters/);
@@ -56,11 +67,33 @@ test('capsViolation fires at the configured percentage only', () => {
 
 test('linkHosts extracts hosts and hostAllowed matches subdomains but not look-alikes', () => {
   assert.deepEqual(linkHosts('see https://www.Roblox.com/games/1 and http://evil.com:8080/x?y=1 or https://user:pw@sneaky.io/'), ['www.roblox.com', 'evil.com', 'sneaky.io']);
-  assert.deepEqual(linkHosts('no links, just roblox.com text'), []);
+  assert.deepEqual(linkHosts('no links here, just words and 3.14 numbers'), []);
   const allow = ['roblox.com', 'youtu.be'];
   assert.ok(hostAllowed('roblox.com', allow) && hostAllowed('www.roblox.com', allow) && hostAllowed('youtu.be', allow));
   assert.ok(!hostAllowed('notroblox.com', allow), 'suffix without a dot boundary must not match');
   assert.ok(!hostAllowed('roblox.com.evil.io', allow));
+});
+
+test('linkHosts sees links Discord shows without http:// (so the allow-list cannot be skipped), but not file names', () => {
+  assert.deepEqual(linkHosts('check scam.gg/free now'), ['scam.gg']);
+  assert.deepEqual(linkHosts('roblox.com.evil.io'), ['roblox.com.evil.io']);
+  assert.deepEqual(linkHosts('look at my image.png and notes.txt and e.g. this'), [], 'file names and "e.g" are not links');
+  assert.deepEqual(linkHosts('(see https://roblox.com/games)'), ['roblox.com'], 'a closing bracket does not become part of the host');
+  assert.match(linkViolation('free robux at scam.gg/claim', { mode: 'allowlist', allow: ['roblox.com'] }), /scam\.gg/);
+});
+
+test('hostAllowed: upper case, trailing dot, ports, userinfo and punycode look-alikes are handled', () => {
+  assert.deepEqual(linkHosts('https://roblox.com@evil.com/x'), ['evil.com'], 'userinfo is not the host');
+  assert.deepEqual(linkHosts('https://user:pw@sneaky.io:8443/'), ['sneaky.io']);
+  assert.ok(hostAllowed('ROBLOX.com.', ['roblox.com']), 'case and trailing dot');
+  assert.ok(hostAllowed('youtu.be', ['YOUTU.BE']), 'allow-list entries in any case');
+  assert.ok(hostAllowed('youtu.be', ['youtu.be.']), 'allow-list entries with a trailing dot');
+  assert.ok(!hostAllowed('xn--robl0x-9xa.com', ['roblox.com']), 'punycode look-alike is not allowed');
+  assert.ok(!hostAllowed('roblox.com.xn--p1ai', ['roblox.com']), 'roblox.com followed by another TLD is not allowed');
+  assert.ok(!hostAllowed('evil.com', ['']), 'an empty allow entry allows nothing');
+  const links = { mode: 'allowlist', allow: ['roblox.com'] };
+  assert.equal(linkViolation('https://roblox.com:443/games/1', links), null, 'port is ignored');
+  assert.match(linkViolation('https://roblox.com@evil.com/games', links), /evil\.com/, 'userinfo trick is caught');
 });
 
 test('linkViolation only acts in allowlist mode and names the first bad host', () => {
@@ -329,6 +362,24 @@ test('handleJoin: a burst of joins triggers the configured lockdown exactly once
   assert.equal((await runtime.kv.get('saa:lockdown')).guildId, '999');
 });
 
+test('handleJoin: with the kick response, a member who joins during the raid cooldown is kicked too', async () => {
+  const { guild } = fakeGuild();
+  runtime.settings = normalizeSettings({ raid: { joins: 4, seconds: 20, action: 'kick' } });
+  const members = Array.from({ length: 5 }, (_, i) => Object.assign(fakeMember(`k${i}`), { guild, client: guild.client }));
+  const base = Date.now() + 30 * 60 * 60_000; // far from the other raid tests
+  const results = [];
+  for (const [i, m] of members.entries()) results.push(await handleJoin(m, runtime.settings, base + i * 1000));
+  assert.deepEqual(results.map((r) => r.raid), [false, false, false, true, false], 'one alert for the raid');
+  assert.ok(members[3].calls.some((c) => c[0] === 'kick'), 'the joiner that completed the pattern is kicked');
+  assert.ok(members[4].calls.some((c) => c[0] === 'kick'), 'the joiner during the cooldown is kicked as well');
+  assert.ok(guild.modlog.sent.some((p) => /Raid/.test(p.embeds?.[0]?.data?.title ?? '')));
+});
+
+test('handleJoin never throws, even for a broken member object', async () => {
+  assert.deepEqual(await handleJoin({}, normalizeSettings({})), { raid: false, ageAction: null });
+  assert.deepEqual(await handleJoin(null, normalizeSettings({})), { raid: false, ageAction: null });
+});
+
 test('handleJoin ignores bots and does nothing when raid protection is off', async () => {
   const { guild } = fakeGuild();
   const bot = Object.assign(fakeMember('bot9'), { guild, client: guild.client });
@@ -357,6 +408,18 @@ test('desiredRules resolves the alert channel and exempt role names to ids', () 
   const spam = rules.find((r) => r.name === `${RULE_PREFIX}Spam`);
   assert.equal(spam.actions.find((a) => a.type === 2).metadata.channel_id, guild.modlog.id);
   assert.deepEqual(spam.exempt_roles, ['role-Moderator'], 'only roles that exist are listed');
+});
+
+test('desiredRules exempts the staff channels (mod-log, staff-chat, ticket-logs, testers-chat) but not the public ones', () => {
+  const { guild, mk } = fakeGuild();
+  mk('100010', '🔒｜staff-chat');
+  mk('100011', '📋｜ticket-logs');
+  mk('100012', '🧪｜testers-chat');
+  const rules = desiredRules(guild, normalizeSettings({}));
+  for (const r of rules) {
+    assert.deepEqual([...r.exempt_channels].sort(), ['100002', '100010', '100011', '100012'], r.name);
+    assert.ok(!r.exempt_channels.includes(guild.general.id));
+  }
 });
 
 test('syncNativeAutoMod pushes once, skips when nothing changed, and pushes again when settings change', async () => {

@@ -2,7 +2,9 @@
 
 ## AutoMod המובנה של Discord (התיעוד הרשמי, נבדק)
 - כללים לכל שרת: מילים (KEYWORD) עד **6**, ספאם (SPAM) **1**, רשימות מוכנות (KEYWORD_PRESET) **1**, אזכורים (MENTION_SPAM) **1**, פרופיל משתמש **1**.
-- מילים: עד 1000 לכלל, עד 60 תווים כל אחת. Regex: עד 10 לכלל, עד 260 תווים (תחביר Rust, בלי backreference). רשימת חריגים: עד 100.
+- מילים: עד 1000 לכלל, עד 60 תווים כל אחת. Regex: עד 10 לכלל, עד 260 תווים (תחביר Rust, בלי backreference). רשימת חריגים: עד 100 בכללי מילים רגילים, עד 1000 בכלל רשימה מוכנה (אנחנו משתמשים ב-100 בשני המקרים).
+- כוכבית `*` היא הסימן המיוחד היחיד במילים, ורק בהתחלה או בסוף (`*מילה*` = מכיל). מילה שהיא `*` לבד תחסום **כל** הודעה, וכוכבית באמצע לא תקפה: `shared/automodRules.js` (`cleanKeyword`) מסנן כאלה לפני שליחה.
+- רשימת חריגים לערוצים: עד 50 (ערוצי הצוות: mod-log, staff-chat, ticket-logs, testers-chat). ערוצי טיקט דינמיים לא ניתנים להחריג לפי שם.
 - פעולות: חסימת הודעה (עם הסבר עד 150 תווים), התראה לערוץ, Timeout (רק לכללי מילים ואזכורים, עד 4 שבועות, דורש גם Moderate Members), חסימת אינטראקציה.
 - יצירת כלל דורשת Manage Guild. עד 20 רולים ו-50 ערוצים פטורים.
 - **למה זה חשוב:** רץ אצל Discord, גם כשהבוט כבוי, ובלי הרשאת MessageContent. לכן זה הבסיס, והבוט משלים רק מה שחסר.
@@ -21,7 +23,9 @@ Dyno חזק במודרציה ולוגים, Carl-bot ברולים ולוגים, M
 ## החלטות
 1. AutoMod מובנה כבסיס, וכללי הבוט רק לפער (פשיטות, אימות, כפילויות, CAPS, הסלמת אזהרות).
 2. כללי AutoMod נשלטים משני מקומות (הבוט והאתר) דרך קוד משותף אחד שבונה את הכללים, כדי שלא יתנגשו.
-3. הכל מתחיל כבוי-בטוח: אין ברירת מחדל שמוחקת או מעניקה עונש כבד (אזהרות מסלימות רק ל-Timeout בשלב ראשון).
+3. הכל מתחיל כבוי-בטוח: אין ברירת מחדל שמוחקת או מעניקה עונש כבד. אזהרות מסלימות רק ל-Timeout כברירת מחדל; Kick ו-Ban רק אם הבעלים בוחר בהם במפורש.
+5. כללי scam כהצעה או קריאה לפעולה ("free robux generator", "claim your reward at ..."), לא מילה בודדת: "I got free robux from a game event" לא נחסם. ביטויים שמופיעים בבקשות חיוביות ("get free robux") נחסמים גם כשהם לא הונאה, וזו פשרה מכוונת.
+6. קישורים בלי `http://` (למשל `scam.gg/free`) נבדקים גם הם מול רשימת הדומיינים המותרים, כי Discord הופך אותם לקישור.
 4. לא מכפילים את Bloxlink (קישור חשבון Roblox), Arcane (דרגות חיצוניות) או Ticket Tool — הבוט שלנו עושה דרגות וטיקטים לבד.
 
 מקורות: [Discord AutoMod docs](https://docs.discord.com/developers/resources/auto-moderation), [Discord Guild docs (incident actions)](https://docs.discord.com/developers/resources/guild), [Discord: Raids 101](https://support.discord.com/hc/en-us/articles/10989121220631-How-to-Protect-Your-Server-from-Raids-101), [Discord AutoMod overview](https://discord.com/safety/auto-moderation-in-discord).

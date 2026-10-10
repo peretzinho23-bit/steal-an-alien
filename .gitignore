@@ -8,3 +8,6 @@ dist/
 .vercel/
 .dev-kv.json
 .vscode/
+
+.vercel
+.env*

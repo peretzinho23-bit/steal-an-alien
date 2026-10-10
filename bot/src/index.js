@@ -9,11 +9,13 @@ import { applyGate, memberRoleName } from './gate.js';
 import { guardMessage } from './guards.js';
 import { syncCommandGuide } from './guide.js';
 import { processJobs } from './jobs.js';
+import { publishLeaderboard } from './leaderboard.js';
 import { LevelStore } from './levels/store.js';
 import { ensureRankRoles, LevelSystem } from './levels/system.js';
 import { registerLogs } from './logs.js';
 import { syncPanels } from './panels.js';
 import { handleJoin } from './raid.js';
+import { cleanupRooms, onVoiceStateUpdate } from './rooms.js';
 import { getSettings, initRuntime, onSettings, refreshSettings, runtime } from './runtime.js';
 import { startScheduler } from './scheduler.js';
 import { ensureMissingChannels } from './setup.js';
@@ -38,6 +40,7 @@ async function prepareGuild(guild) {
     ['commands', () => registerCommands(guild).then(() => 'registered')],
     ['rank roles', () => ensureRankRoles(guild).then((created) => (created.length ? `created ${created.join(', ')}` : 'ok'))],
     ['channels', () => ensureMissingChannels(guild, { gated: getSettings().raid.gate }).then((created) => (created.length ? `created ${created.join(', ')}` : 'ok'))],
+    ['temp rooms', () => cleanupRooms(guild).then((r) => `deleted ${r.deleted} empty, kept ${r.kept}, forgot ${r.forgotten}`)],
     ['panels', () => syncPanels(guild)],
     ['command guide', () => syncCommandGuide(guild)],
     ['automod', () => syncNativeAutoMod(guild, { force: true }).then(describeSync)],
@@ -91,7 +94,10 @@ function createClient(features) {
     for (const guild of c.guilds.cache.values()) await prepareGuild(guild);
     watchSettings(c);
     levels.start(c);
-    startScheduler(c, [{ name: 'jobs', every: 30_000, run: () => processJobs(c) }]);
+    startScheduler(c, [
+      { name: 'jobs', every: 30_000, run: () => processJobs(c) },
+      { name: 'leaderboard', every: 5 * 60_000, run: () => publishLeaderboard(c, levels) },
+    ]);
   });
 
   client.on(Events.GuildCreate, (guild) => prepareGuild(guild));
@@ -107,6 +113,8 @@ function createClient(features) {
       else await interaction.reply(reply).catch(() => {});
     }
   });
+
+  client.on(Events.VoiceStateUpdate, (oldState, newState) => onVoiceStateUpdate(oldState, newState));
 
   client.on(Events.GuildMemberAdd, async (member) => {
     if (member.user.bot) return;

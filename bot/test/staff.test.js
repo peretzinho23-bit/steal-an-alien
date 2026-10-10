@@ -36,8 +36,9 @@ test('stepForCount fires only on the exact threshold', () => {
   assert.equal(stepForCount(esc, 1), null);
   assert.equal(stepForCount(esc, 3).action, 'timeout');
   assert.equal(stepForCount(esc, 4), null, 'between thresholds nothing happens');
-  assert.equal(stepForCount(esc, 5).action, 'kick');
-  assert.equal(stepForCount(esc, 7).action, 'ban');
+  assert.deepEqual(stepForCount(esc, 5), { at: 5, action: 'timeout', minutes: 1440 }, 'the default never goes beyond a timeout');
+  assert.equal(stepForCount(esc, 7), null);
+  assert.ok(esc.every((s) => s.action === 'timeout'), 'kick and ban are opt-in only');
   assert.equal(stepForCount([], 3), null);
 });
 
@@ -84,24 +85,27 @@ const guildWith = (member) => {
   };
 };
 
-test('applyEscalation: timeout at 3, kick at 5, ban at 7, nothing in between', async () => {
+// kick and ban are not in the defaults any more: the owner has to choose them, so these tests choose them
+const STRICT = normalizeSettings({ automod: { warns: { escalation: [{ at: 3, action: 'timeout', minutes: 60 }, { at: 5, action: 'kick' }, { at: 7, action: 'ban' }] } } });
+
+test('applyEscalation (strict settings): timeout at 3, kick at 5, ban at 7, nothing in between', async () => {
   const m = fakeMember();
   const g = guildWith(m);
-  assert.match(await applyEscalation(g, { id: 'u' }, 3), /timed out for 60 minute/);
+  assert.match(await applyEscalation(g, { id: 'u' }, 3, STRICT), /timed out for 60 minute/);
   assert.deepEqual(m.calls[0].slice(0, 2), ['timeout', 3_600_000]);
-  assert.equal(await applyEscalation(g, { id: 'u' }, 4), null);
-  assert.equal(await applyEscalation(g, { id: 'u' }, 5), 'kicked');
-  assert.equal(await applyEscalation(g, { id: 'u' }, 7), 'banned');
+  assert.equal(await applyEscalation(g, { id: 'u' }, 4, STRICT), null);
+  assert.equal(await applyEscalation(g, { id: 'u' }, 5, STRICT), 'kicked');
+  assert.equal(await applyEscalation(g, { id: 'u' }, 7, STRICT), 'banned');
   assert.equal(g.bans[0][0], 'u');
 });
 
 test('applyEscalation: reports (does not throw) when the bot cannot act or Discord errors', async () => {
   const weak = fakeMember({ moderatable: false, kickable: false });
-  assert.match(await applyEscalation(guildWith(weak), { id: 'u' }, 3), /could not time out/);
-  assert.match(await applyEscalation(guildWith(weak), { id: 'u' }, 5), /could not kick/);
+  assert.match(await applyEscalation(guildWith(weak), { id: 'u' }, 3, STRICT), /could not time out/);
+  assert.match(await applyEscalation(guildWith(weak), { id: 'u' }, 5, STRICT), /could not kick/);
   const boom = guildWith(fakeMember());
   boom.members.ban = async () => { throw new Error('Missing Permissions'); };
-  assert.match(await applyEscalation(boom, { id: 'u' }, 7), /escalation failed: Missing Permissions/);
+  assert.match(await applyEscalation(boom, { id: 'u' }, 7, STRICT), /escalation failed: Missing Permissions/);
 });
 
 test('processTempBans lifts only the expired ones and retries real failures', async () => {

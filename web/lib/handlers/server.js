@@ -102,7 +102,9 @@ export async function putSettings(ctx) {
     const exemptRoleIds = settings.automod.exemptRoles
       .map((n) => roles.find((r) => plainName(r.name) === plainName(n))?.id)
       .filter(Boolean);
-    const rules = buildRules(settings, { alertChannelId: alert?.id ?? null, exemptRoleIds });
+    // staff areas are never filtered (same list as the bot uses in bot/src/automod.js)
+    const exemptChannelIds = ['mod-log', 'staff-chat', 'ticket-logs', 'testers-chat'].map((k) => findByKey(channels, k)?.id).filter(Boolean);
+    const rules = buildRules(settings, { alertChannelId: alert?.id ?? null, exemptRoleIds, exemptChannelIds });
     sync = await syncAutoModRules(services.discord.rest, services.config.guildId, rules);
   } catch (e) {
     sync = { created: [], updated: [], removed: [], errors: [e.message] };

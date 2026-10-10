@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 export class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -10,13 +12,7 @@ export const setUnauthorizedHandler = (fn) => {
   onUnauthorized = fn;
 };
 
-const HEBREW_BY_STATUS = {
-  401: 'צריך להתחבר מחדש.',
-  403: 'אין לך הרשאה לפעולה הזו.',
-  404: 'לא נמצא.',
-  429: 'יותר מדי בקשות. חכה כמה שניות ונסה שוב.',
-  503: 'השירות לא זמין כרגע.',
-};
+const statusText = (status) => (status in { 401: 1, 403: 1, 404: 1, 429: 1, 503: 1 } ? t(`api.status.${status}`) : t('api.status.other', { status }));
 
 /** Calls the dashboard API. Every write carries the custom header the server requires against cross-site requests. */
 export async function api(path, { method = 'GET', body } = {}) {
@@ -29,7 +25,7 @@ export async function api(path, { method = 'GET', body } = {}) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'אין חיבור לשרת. בדוק את האינטרנט ונסה שוב.');
+    throw new ApiError(0, t('api.offline'));
   }
   let data = null;
   try {
@@ -40,7 +36,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/api/auth/')) onUnauthorized();
     const detail = data?.error;
-    const base = HEBREW_BY_STATUS[res.status] ?? `שגיאה (${res.status}).`;
+    const base = statusText(res.status);
     throw new ApiError(res.status, detail && res.status !== 401 ? `${base} ${detail}` : base);
   }
   return data;

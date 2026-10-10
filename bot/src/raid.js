@@ -38,6 +38,11 @@ export class RaidGuard {
     this.lastAlert = now;
     return { count, userIds: this.joins.filter((j) => now - j.at <= cfg.seconds * 1000).map((j) => j.userId) };
   }
+
+  /** True while the cooldown after the last alert runs, i.e. the raid we already reported is still going on. */
+  isRaiding(now) {
+    return now - this.lastAlert < RAID_COOLDOWN_MS;
+  }
 }
 
 const guard = new RaidGuard();
@@ -66,6 +71,15 @@ export async function checkAccountAge(member, settings = getSettings(), now = Da
 
 /** Raid response chosen in the dashboard. Never throws. */
 export async function handleJoin(member, settings = getSettings(), now = Date.now()) {
+  try {
+    return await handleJoinUnsafe(member, settings, now);
+  } catch (e) {
+    log('join check failed:', e.message);
+    return { raid: false, ageAction: null };
+  }
+}
+
+async function handleJoinUnsafe(member, settings, now) {
   const r = settings.raid;
   if (!r.enabled || member.user.bot) return { raid: false, ageAction: null };
   const ageAction = await checkAccountAge(member, settings, now);
@@ -74,7 +88,14 @@ export async function handleJoin(member, settings = getSettings(), now = Date.no
   }
 
   const hit = guard.record(member.id, now, r);
-  if (!hit) return { raid: false, ageAction };
+  if (!hit) {
+    // Alerts are once per cooldown, but with the kick response every joiner during that raid must still be removed
+    if (r.action === 'kick' && guard.isRaiding(now) && member.kickable) {
+      await member.kick('Raid response (joined during a raid)').catch((e) => log('raid kick failed:', e.message));
+      await modLog(member.guild, { action: 'Raid: kicked joiner', moderator: member.client.user, target: member.user, extra: 'joined during an active raid' });
+    }
+    return { raid: false, ageAction };
+  }
   try {
     const channel = logChannel(member.guild);
     await channel?.send({
@@ -90,11 +111,12 @@ export async function handleJoin(member, settings = getSettings(), now = Date.no
       await lockdownOn(member.guild, { minutes: r.lockdownMinutes, by: member.client.user, reason: 'Automatic raid response' });
     } else if (r.action === 'kick') {
       let kicked = 0;
-      for (const userId of hit.userIds) {
-        const m = member.guild.members.cache.get(userId);
+      const ids = [...new Set([member.id, ...hit.userIds])]; // the joiner who completed the pattern is always included
+      for (const userId of ids) {
+        const m = userId === member.id ? member : member.guild.members.cache.get(userId);
         if (m?.kickable && await m.kick('Raid response').then(() => true).catch(() => false)) kicked++;
       }
-      await modLog(member.guild, { action: 'Raid: kicked recent joiners', moderator: member.client.user, extra: `${kicked} of ${hit.userIds.length}` });
+      await modLog(member.guild, { action: 'Raid: kicked recent joiners', moderator: member.client.user, extra: `${kicked} of ${ids.length}` });
     }
   } catch (e) {
     log('raid response failed:', e.message);
